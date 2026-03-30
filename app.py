@@ -22,6 +22,7 @@ app = Dash(
     external_stylesheets=[dbc.themes.BOOTSTRAP],
     suppress_callback_exceptions=True,
     pages_folder="pages",
+    use_pages=True
 )
 
 # Define app layout
