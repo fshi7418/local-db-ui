@@ -30,9 +30,10 @@ def get_active_budgets(year):
         session = Session()
 
         budgets = session.query(ExpenseBudget).filter(
-            ExpenseBudget.year == year
+            ExpenseBudget.budget_start_date >= datetime(year, 1, 1),
+            ExpenseBudget.budget_end_date <= datetime(year, 12, 31)
         ).all()
-        result = [{"label": f"{b.name} ({b.category})", "value": b.id} for b in budgets]
+        result = [{"label": f"{b.category} ({b.subcategory})", "value": b.id} for b in budgets]
         session.close()
         return result
     except Exception as e:
