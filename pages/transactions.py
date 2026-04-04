@@ -41,7 +41,7 @@ def get_active_budgets(year):
         return []
 
 # Helper: query recent N transactions
-def get_recent_transactions(n=10):
+def get_recent_transactions(n=40):
     try:
         # Use local session instance to avoid issues with closed sessions
         from models import Session
@@ -204,7 +204,7 @@ layout = dbc.Container(
                     html.Div(
                         id="trans-table",
                         children=dbc.Table.from_dataframe(
-                            pd.DataFrame(get_recent_transactions(10)),
+                            pd.DataFrame(get_recent_transactions(40)),
                             striped=True,
                             bordered=True,
                             hover=True,
