@@ -2,6 +2,7 @@ import dash
 from dash import dcc, html, callback, Input, Output, State
 import dash_bootstrap_components as dbc
 import pandas as pd
+import plotly.express as px
 from datetime import datetime
 import sys
 
@@ -39,6 +40,28 @@ def get_active_budgets(year):
     except Exception as e:
         print(f"Error querying budgets: {e}")
         return []
+
+# Helper: query all transactions for chart, grouped by month and category
+def build_spending_chart():
+    try:
+        from models import Session
+        session = Session()
+        rows = session.query(ExpenseTransactions).all()
+        data = [
+            {"Date": row.transaction_date, "Amount": row.amount, "Category": row.category}
+            for row in rows
+        ]
+        session.close()
+        if not data:
+            return px.line(title="Spending by Category Over Time")
+        df = pd.DataFrame(data)
+        df["Month"] = pd.to_datetime(df["Date"]).dt.to_period("M").dt.to_timestamp()
+        df = df.groupby(["Month", "Category"], as_index=False)["Amount"].sum()
+        return px.line(df, x="Month", y="Amount", color="Category", title="Spending by Category Over Time")
+    except Exception as e:
+        print(f"Error building chart: {e}")
+        return px.line(title="Spending by Category Over Time")
+
 
 # Helper: query recent N transactions
 def get_recent_transactions(n=40):
@@ -196,6 +219,15 @@ layout = dbc.Container(
             className="mb-3",
         ),
 
+        # Spending chart
+        dbc.Row(
+            dbc.Col(
+                dcc.Graph(id="trans-chart", figure=build_spending_chart()),
+                width=12,
+            ),
+            className="mb-4",
+        ),
+
         # Recent transactions table
         dbc.Row(
             dbc.Col([
@@ -241,6 +273,7 @@ def populate_budgets(date_str):
 @callback(
     Output("trans-alert", "children"),
     Output("trans-table", "children"),
+    Output("trans-chart", "figure"),
     Output("trans-amount", "value"),
     Output("trans-category", "value"),
     Output("trans-source", "value"),
@@ -297,7 +330,7 @@ def submit_transaction(n_clicks, is_today, date_str, amount, category, source, b
         alert = dbc.Alert("Transaction added successfully!", color="success", dismissable=True)
 
         # Clear form
-        return alert, table, None, None, None, None, ""
+        return alert, table, build_spending_chart(), None, None, None, None, ""
 
     except Exception as e:
         alert = dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True)
@@ -310,4 +343,4 @@ def submit_transaction(n_clicks, is_today, date_str, amount, category, source, b
             hover=True,
             size="sm",
         )
-        return alert, table, amount, category, source, budget_id, comment
+        return alert, table, build_spending_chart(), amount, category, source, budget_id, comment
