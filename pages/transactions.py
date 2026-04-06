@@ -1,5 +1,6 @@
 import dash
 from dash import dcc, html, callback, Input, Output, State
+from dash.dash_table import DataTable
 import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.express as px
@@ -107,7 +108,7 @@ def get_filtered_transactions(month=None, category=None):
             data.append({
                 "ID": row.id,
                 "Date": row.transaction_date.strftime("%Y-%m-%d"),
-                "Amount": f"${row.amount:.2f}",
+                "Amount": row.amount,
                 "Category": row.category,
                 "Source": row.expense_source,
                 "Comment": row.expense_comment or "",
@@ -376,10 +377,22 @@ def filter_table(month, category, _trigger):
     data = get_filtered_transactions(month=month, category=category)
     if not data:
         return html.P("No transactions found.", className="text-muted")
-    return dbc.Table.from_dataframe(
-        pd.DataFrame(data),
-        striped=True,
-        bordered=True,
-        hover=True,
-        size="sm",
+    df = pd.DataFrame(data)
+    columns = [
+        {"name": "ID", "id": "ID", "type": "numeric"},
+        {"name": "Date", "id": "Date", "type": "text"},
+        {"name": "Amount", "id": "Amount", "type": "numeric", "format": {"specifier": "$.2f"}},
+        {"name": "Category", "id": "Category", "type": "text"},
+        {"name": "Source", "id": "Source", "type": "text"},
+        {"name": "Comment", "id": "Comment", "type": "text"},
+    ]
+    return DataTable(
+        columns=columns,
+        data=df.to_dict("records"),
+        sort_action="native",
+        style_cell={"textAlign": "left", "padding": "10px"},
+        style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
+        style_data_conditional=[
+            {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"}
+        ],
     )
