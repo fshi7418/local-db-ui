@@ -57,25 +57,53 @@ def build_spending_chart():
         df = pd.DataFrame(data)
         df["Month"] = pd.to_datetime(df["Date"]).dt.to_period("M").dt.to_timestamp()
         df = df.groupby(["Month", "Category"], as_index=False)["Amount"].sum()
-        return px.line(df, x="Month", y="Amount", color="Category", title="Spending by Category Over Time")
+        fig = px.line(df, x="Month", y="Amount", color="Category", title="Spending by Category Over Time")
+        fig.update_traces(line_shape="spline")
+        return fig
     except Exception as e:
         print(f"Error building chart: {e}")
         return px.line(title="Spending by Category Over Time")
 
 
-# Helper: query recent N transactions
-def get_recent_transactions(n=40):
+# Helper: get distinct months from transactions (for filter dropdown)
+def get_available_months():
     try:
-        # Use local session instance to avoid issues with closed sessions
         from models import Session
         session = Session()
+        rows = session.query(ExpenseTransactions.transaction_date).all()
+        session.close()
+        months = sorted({r.transaction_date.strftime("%Y-%m") for r in rows}, reverse=True)
+        return [{"label": datetime.strptime(m, "%Y-%m").strftime("%B %Y"), "value": m} for m in months]
+    except Exception as e:
+        print(f"Error querying months: {e}")
+        return []
 
+
+# Helper: query transactions with optional month and category filters
+def get_filtered_transactions(month=None, category=None):
+    try:
+        from models import Session
+        session = Session()
         rows = session.query(ExpenseTransactions).order_by(
             ExpenseTransactions.transaction_date.desc()
-        ).limit(n).all()
+        ).all()
+        session.close()
+
+        # Convert category enum name to stored display value
+        category_value = None
+        if category:
+            try:
+                category_obj = getattr(ExpenseCat, category)
+                category_value = category_obj.value
+            except AttributeError:
+                pass
 
         data = []
         for row in rows:
+            if month and row.transaction_date.strftime("%Y-%m") != month:
+                continue
+            if category_value and row.category != category_value:
+                continue
             data.append({
                 "ID": row.id,
                 "Date": row.transaction_date.strftime("%Y-%m-%d"),
@@ -84,7 +112,6 @@ def get_recent_transactions(n=40):
                 "Source": row.expense_source,
                 "Comment": row.expense_comment or "",
             })
-        session.close()
         return data
     except Exception as e:
         print(f"Error querying transactions: {e}")
@@ -228,24 +255,39 @@ layout = dbc.Container(
             className="mb-4",
         ),
 
+        # Transaction table filters
+        dbc.Row([
+            dbc.Col([
+                html.Label("Filter by Month"),
+                dcc.Dropdown(
+                    id="trans-filter-month",
+                    options=get_available_months(),
+                    placeholder="All months",
+                    clearable=True,
+                ),
+            ], md=4),
+            dbc.Col([
+                html.Label("Filter by Category"),
+                dcc.Dropdown(
+                    id="trans-filter-category",
+                    options=[{"label": display, "value": enum_name} for display, enum_name in get_categories()],
+                    placeholder="All categories",
+                    clearable=True,
+                ),
+            ], md=4),
+        ], className="mb-3"),
+
         # Recent transactions table
         dbc.Row(
             dbc.Col([
-                html.H4("Recent Transactions"),
+                html.H4("Transactions"),
                 dbc.Spinner(
-                    html.Div(
-                        id="trans-table",
-                        children=dbc.Table.from_dataframe(
-                            pd.DataFrame(get_recent_transactions(40)),
-                            striped=True,
-                            bordered=True,
-                            hover=True,
-                            size="sm",
-                        ),
-                    ),
+                    html.Div(id="trans-table"),
                 ),
             ], width=12),
         ),
+
+        dcc.Store(id="trans-refresh-trigger", data=0),
     ],
     fluid=True,
 )
@@ -272,8 +314,8 @@ def populate_budgets(date_str):
 # Callback: submit transaction
 @callback(
     Output("trans-alert", "children"),
-    Output("trans-table", "children"),
     Output("trans-chart", "figure"),
+    Output("trans-refresh-trigger", "data"),
     Output("trans-amount", "value"),
     Output("trans-category", "value"),
     Output("trans-source", "value"),
@@ -288,18 +330,17 @@ def populate_budgets(date_str):
         State("trans-source", "value"),
         State("trans-budget", "value"),
         State("trans-comment", "value"),
+        State("trans-refresh-trigger", "data"),
     ],
     prevent_initial_call=True,
 )
-def submit_transaction(n_clicks, is_today, date_str, amount, category, source, budget_id, comment):
+def submit_transaction(n_clicks, is_today, date_str, amount, category, source, budget_id, comment, trigger):
     try:
-        # Determine date
         if is_today:
             date = datetime.now().date()
         else:
             date = datetime.fromisoformat(date_str).date()
 
-        # Validate
         if not amount or amount <= 0:
             raise ValueError("Amount must be positive")
         if not category:
@@ -307,7 +348,6 @@ def submit_transaction(n_clicks, is_today, date_str, amount, category, source, b
         if not source:
             raise ValueError("Source is required")
 
-        # Insert
         add_expense(
             e_date=date,
             e_amount=float(amount),
@@ -317,30 +357,29 @@ def submit_transaction(n_clicks, is_today, date_str, amount, category, source, b
             e_budget_id=budget_id or "",
         )
 
-        # Refresh table
-        table_data = get_recent_transactions(10)
-        table = dbc.Table.from_dataframe(
-            pd.DataFrame(table_data),
-            striped=True,
-            bordered=True,
-            hover=True,
-            size="sm",
-        )
-
         alert = dbc.Alert("Transaction added successfully!", color="success", dismissable=True)
-
-        # Clear form
-        return alert, table, build_spending_chart(), None, None, None, None, ""
+        return alert, build_spending_chart(), (trigger or 0) + 1, None, None, None, None, ""
 
     except Exception as e:
         alert = dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True)
-        # Return current table (no change)
-        table_data = get_recent_transactions(10)
-        table = dbc.Table.from_dataframe(
-            pd.DataFrame(table_data),
-            striped=True,
-            bordered=True,
-            hover=True,
-            size="sm",
-        )
-        return alert, table, build_spending_chart(), amount, category, source, budget_id, comment
+        return alert, build_spending_chart(), trigger, amount, category, source, budget_id, comment
+
+
+# Callback: filter transactions table
+@callback(
+    Output("trans-table", "children"),
+    Input("trans-filter-month", "value"),
+    Input("trans-filter-category", "value"),
+    Input("trans-refresh-trigger", "data"),
+)
+def filter_table(month, category, _trigger):
+    data = get_filtered_transactions(month=month, category=category)
+    if not data:
+        return html.P("No transactions found.", className="text-muted")
+    return dbc.Table.from_dataframe(
+        pd.DataFrame(data),
+        striped=True,
+        bordered=True,
+        hover=True,
+        size="sm",
+    )
