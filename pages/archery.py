@@ -1,5 +1,6 @@
 import dash
 from dash import html, callback, Input, Output
+from dash.dash_table import DataTable
 import dash_bootstrap_components as dbc
 import pandas as pd
 from sqlalchemy import text
@@ -176,7 +177,27 @@ def update_archery_rounds(_):
     if not data:
         return html.P("No data available")
     df = pd.DataFrame(data)
-    return dbc.Table.from_dataframe(df, striped=True, bordered=True, hover=True)
+    # Define numeric columns for proper sorting
+    numeric_cols = [
+        "ID", "Num Shots", "Avg Shots", "Total Score", "X", "10", "9",
+        "Distance (m)", "Seconds/Arrow", "Draw Weight (lb)", "Magnification",
+        "StDev Ends", "StDev Shots", "Days Since Practice"
+    ]
+    columns = [
+        {"name": col, "id": col, "type": "numeric" if col in numeric_cols else "text"}
+        for col in df.columns
+    ]
+    return DataTable(
+        columns=columns,
+        data=df.to_dict("records"),
+        sort_action="native",
+        filter_action="native",
+        style_cell={"textAlign": "left", "padding": "10px", "fontSize": "12px"},
+        style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
+        style_data_conditional=[
+            {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"}
+        ],
+    )
 
 @callback(
     Output("shots-categorized-table", "children"),
@@ -190,4 +211,20 @@ def update_shots_categorized(start_date, end_date):
     if not data:
         return html.P("No data available")
     df = pd.DataFrame(data)
-    return dbc.Table.from_dataframe(df, striped=True, bordered=True, hover=True)
+    columns = [
+        {"name": "Bow Type", "id": "Bow Type", "type": "text"},
+        {"name": "Limb", "id": "Limb", "type": "text"},
+        {"name": "Draw Weight (lb)", "id": "Draw Weight (lb)", "type": "numeric"},
+        {"name": "Num Shots", "id": "Num Shots", "type": "numeric"},
+    ]
+    return DataTable(
+        columns=columns,
+        data=df.to_dict("records"),
+        sort_action="native",
+        filter_action="native",
+        style_cell={"textAlign": "left", "padding": "10px"},
+        style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
+        style_data_conditional=[
+            {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"}
+        ],
+    )
