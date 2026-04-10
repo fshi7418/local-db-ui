@@ -342,8 +342,8 @@ def submit_transaction(n_clicks, is_today, date_str, amount, category, source, b
         else:
             date = datetime.fromisoformat(date_str).date()
 
-        if not amount or amount <= 0:
-            raise ValueError("Amount must be positive")
+        if amount is None:
+            raise ValueError("Amount is required")
         if not category:
             raise ValueError("Category is required")
         if not source:
