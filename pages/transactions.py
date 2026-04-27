@@ -85,9 +85,16 @@ def get_filtered_transactions(month=None, category=None):
     try:
         from models import Session
         session = Session()
-        rows = session.query(ExpenseTransactions).order_by(
-            ExpenseTransactions.transaction_date.desc()
-        ).all()
+        rows = (
+            session.query(ExpenseTransactions, ExpenseBudget)
+            .outerjoin(ExpenseBudget, ExpenseTransactions.expense_budget_id == ExpenseBudget.id)
+            .order_by(
+                ExpenseTransactions.transaction_date.desc(),
+                ExpenseTransactions.id.desc()
+            )
+            .limit(1000)
+            .all()
+        )
         session.close()
 
         # Convert category enum name to stored display value
@@ -100,16 +107,18 @@ def get_filtered_transactions(month=None, category=None):
                 pass
 
         data = []
-        for row in rows:
+        for row, budget in rows:
             if month and row.transaction_date.strftime("%Y-%m") != month:
                 continue
             if category_value and row.category != category_value:
                 continue
+            budget_label = f"{budget.category} ({budget.subcategory})" if budget else ""
             data.append({
                 "ID": row.id,
                 "Date": row.transaction_date.strftime("%Y-%m-%d"),
                 "Amount": row.amount,
                 "Category": row.category,
+                "Sub-Category": budget_label,
                 "Source": row.expense_source,
                 "Comment": row.expense_comment or "",
             })
@@ -383,6 +392,7 @@ def filter_table(month, category, _trigger):
         {"name": "Date", "id": "Date", "type": "text"},
         {"name": "Amount", "id": "Amount", "type": "numeric", "format": {"specifier": "$.2f"}},
         {"name": "Category", "id": "Category", "type": "text"},
+        {"name": "Sub-Category", "id": "Sub-Category", "type": "text"},
         {"name": "Source", "id": "Source", "type": "text"},
         {"name": "Comment", "id": "Comment", "type": "text"},
     ]
