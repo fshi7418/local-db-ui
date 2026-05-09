@@ -68,50 +68,6 @@ def get_shots_by_cartridge():
         print(f"Error querying shots by cartridge: {e}")
         return []
 
-# Helper: query trap rounds
-def get_trap_rounds():
-    try:
-        session = Session()
-        query = text("""
-            select
-                t.id, v.visit_date, e.id as end_id, t.style, m."name" as gun, a."name" as ammunition, car.name as cartridge, car.shot_size as shot,
-                c_ma."name" as choke_manufacturer, c."name" as choke, c.constriction, c.diametre_in, t.num_break
-            from firearm_visit v
-            join firearm_end e on v.id = e.firearm_visit_id
-            join firearm_model m on e.firearm_model_id = m.id
-            join firearm_ammunition a on e.firearm_ammunition_id = a.id
-            join firearm_cartridge car on a.firearm_cartridge_id = car.id
-            join trap_round t on e.id = t.firearm_end_id
-            left join shotgun_choke c on t.shotgun_choke_id = c.id
-            left join firearm_manufacturer c_ma on c.firearm_manufacturer_id = c_ma.id
-            order by visit_date desc, e.id
-            limit 15
-        """)
-        result = session.execute(query).fetchall()
-        session.close()
-
-        data = []
-        for row in result:
-            data.append({
-                "Trap ID": row[0],
-                "Visit Date": row[1].strftime("%Y-%m-%d") if row[1] else None,
-                "End ID": row[2],
-                "Style": row[3],
-                "Gun": row[4],
-                "Ammunition": row[5],
-                "Cartridge": row[6],
-                "Shot": row[7],
-                "Choke Mfr": row[8],
-                "Choke": row[9],
-                "Constriction": row[10],
-                "Diameter (in)": row[11],
-                "Breaks": row[12],
-            })
-        return data
-    except Exception as e:
-        print(f"Error querying trap rounds: {e}")
-        return []
-
 # Layout
 layout = dbc.Container(
     [
@@ -151,19 +107,6 @@ layout = dbc.Container(
             className="mb-4"
         ),
 
-        # Trap Rounds
-        dbc.Row(
-            dbc.Col(
-                dbc.Card(
-                    dbc.CardBody([
-                        html.H4("Trap Rounds", className="card-title"),
-                        html.Div(id="trap-rounds-table"),
-                    ]),
-                ),
-                width=12,
-            ),
-            className="mb-4"
-        ),
     ],
     fluid=True,
 )
@@ -186,17 +129,6 @@ def update_shots_by_model(_):
 )
 def update_shots_by_cartridge(_):
     data = get_shots_by_cartridge()
-    if not data:
-        return html.P("No data available")
-    df = pd.DataFrame(data)
-    return dbc.Table.from_dataframe(df, striped=True, bordered=True, hover=True)
-
-@dash.callback(
-    dash.Output("trap-rounds-table", "children"),
-    dash.Input("trap-rounds-table", "id"),
-)
-def update_trap_rounds(_):
-    data = get_trap_rounds()
     if not data:
         return html.P("No data available")
     df = pd.DataFrame(data)
