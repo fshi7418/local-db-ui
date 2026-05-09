@@ -1,5 +1,5 @@
 import dash
-from dash import html, callback, Input, Output
+from dash import html, dcc, callback, Input, Output
 from dash.dash_table import DataTable
 import dash_bootstrap_components as dbc
 import pandas as pd
@@ -10,7 +10,7 @@ from models import Session
 dash.register_page(__name__, path="/trap")
 
 
-def get_trap_rounds():
+def get_trap_rounds(discipline=None):
     try:
         session = Session()
         query = text("""
@@ -34,6 +34,8 @@ def get_trap_rounds():
 
         data = []
         for row in result:
+            if discipline and row[3] != discipline:
+                continue
             data.append({
                 "ID": row[0],
                 "Visit Date": row[1].strftime("%Y-%m-%d") if row[1] else None,
@@ -51,6 +53,17 @@ def get_trap_rounds():
         return data
     except Exception as e:
         print(f"Error querying trap rounds: {e}")
+        return []
+
+
+def get_disciplines():
+    try:
+        session = Session()
+        result = session.execute(text("select distinct discipline from trap_round where discipline is not null order by discipline")).fetchall()
+        session.close()
+        return [{"label": row[0], "value": row[0]} for row in result]
+    except Exception as e:
+        print(f"Error querying disciplines: {e}")
         return []
 
 
@@ -76,6 +89,18 @@ layout = dbc.Container(
             className="mb-4",
         ),
         dbc.Row(
+            dbc.Col([
+                html.Label("Filter by Discipline"),
+                dcc.Dropdown(
+                    id="trap-filter-discipline",
+                    options=get_disciplines(),
+                    placeholder="All disciplines",
+                    clearable=True,
+                ),
+            ], md=4),
+            className="mb-3",
+        ),
+        dbc.Row(
             dbc.Col(
                 dbc.Spinner(html.Div(id="trap-rounds-datatable")),
                 width=12,
@@ -88,10 +113,10 @@ layout = dbc.Container(
 
 @callback(
     Output("trap-rounds-datatable", "children"),
-    Input("trap-rounds-datatable", "id"),
+    Input("trap-filter-discipline", "value"),
 )
-def load_trap_table(_):
-    data = get_trap_rounds()
+def load_trap_table(discipline):
+    data = get_trap_rounds(discipline=discipline)
     if not data:
         return html.P("No trap rounds found.", className="text-muted")
     df = pd.DataFrame(data)
