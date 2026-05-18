@@ -1,5 +1,6 @@
 import dash
 from dash import dcc, html, callback, Input, Output, State, ctx
+from dash.dash_table import DataTable
 import dash_bootstrap_components as dbc
 import pandas as pd
 from sqlalchemy import text
@@ -125,6 +126,38 @@ def get_ammo_cartridge_id(ammo_id):
     except Exception as e:
         print(f"Error querying ammo cartridge: {e}")
         return None
+
+
+def get_ammunition_data():
+    try:
+        session = Session()
+        rows = session.execute(text("""
+            select
+                a.id as ammunition_id, a.name as ammunition_name, mfr.name as manufacturer,
+                c.id as cartridge_id, c.name as cartridge_name, c.shot_size, c.shot_load_oz, c.shot_load_g, c.shot_material
+            from firearm_ammunition a
+            left join firearm_manufacturer mfr on a.firearm_manufacturer_id = mfr.id
+            left join firearm_cartridge c on a.firearm_cartridge_id = c.id
+            order by mfr.name, a.name
+        """)).fetchall()
+        session.close()
+        return [
+            {
+                "ID": r[0],
+                "Ammunition": r[1],
+                "Manufacturer": r[2],
+                "Cartridge ID": r[3],
+                "Cartridge": r[4],
+                "Shot Size": r[5],
+                "Load (oz)": r[6],
+                "Load (g)": r[7],
+                "Shot Material": r[8],
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        print(f"Error querying ammunition data: {e}")
+        return []
 
 
 # ── Stats helpers ───────────────────────────────────────────────────────────────
@@ -523,7 +556,7 @@ layout = dbc.Container(
                         md=2,
                     ),
                     dbc.Col(
-                        dbc.Button("Reset Visit", id="fv-reset-btn", color="secondary", outline=True),
+                        dbc.Button("Clear & Restart Visit", id="fv-reset-btn", color="secondary", outline=True),
                         md=2,
                     ),
                 ], className="mt-2"),
@@ -553,6 +586,17 @@ layout = dbc.Container(
                 dbc.Card(dbc.CardBody([
                     html.H4("Shots by Cartridge", className="card-title"),
                     html.Div(id="shots-by-cartridge-table"),
+                ])),
+                width=12,
+            ),
+            className="mb-4",
+        ),
+
+        dbc.Row(
+            dbc.Col(
+                dbc.Card(dbc.CardBody([
+                    html.H4("Ammunition", className="card-title"),
+                    html.Div(id="ammunition-table"),
                 ])),
                 width=12,
             ),
@@ -848,3 +892,27 @@ def update_shots_by_cartridge(_):
     if not data:
         return html.P("No data available")
     return dbc.Table.from_dataframe(pd.DataFrame(data), striped=True, bordered=True, hover=True)
+
+
+@dash.callback(
+    dash.Output("ammunition-table", "children"),
+    dash.Input("ammunition-table", "id"),
+)
+def update_ammunition_table(_):
+    data = get_ammunition_data()
+    if not data:
+        return html.P("No data available")
+    df = pd.DataFrame(data)
+    return DataTable(
+        columns=[{"name": c, "id": c} for c in df.columns],
+        data=df.to_dict("records"),
+        sort_action="native",
+        filter_action="native",
+        page_action="native",
+        page_size=50,
+        style_cell={"textAlign": "left", "padding": "10px"},
+        style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
+        style_data_conditional=[
+            {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"}
+        ],
+    )
