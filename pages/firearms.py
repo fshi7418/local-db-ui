@@ -128,6 +128,37 @@ def get_ammo_cartridge_id(ammo_id):
         return None
 
 
+def get_visits_data():
+    try:
+        session = Session()
+        rows = session.execute(text("""
+            select
+                v.firearm_range_id, v.visit_date, v.time_start, v.time_end,
+                rng.name, rng.address_street, rng.address_city, rng.address_province, rng.address_country
+            from firearm_visit v, firearm_range rng
+            where v.firearm_range_id = rng.id
+            order by v.visit_date desc, v.id desc
+        """)).fetchall()
+        session.close()
+        return [
+            {
+                "Range ID": r[0],
+                "Date": str(r[1]),
+                "Start": r[2],
+                "End": r[3],
+                "Range": r[4],
+                "Street": r[5],
+                "City": r[6],
+                "Province": r[7],
+                "Country": r[8],
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        print(f"Error querying visits: {e}")
+        return []
+
+
 def get_ammunition_data():
     try:
         session = Session()
@@ -321,6 +352,17 @@ layout = dbc.Container(
         ),
 
         dbc.Row(dbc.Col(html.Div(id="fv-alert"), width=12), className="mb-2"),
+
+        dbc.Row(
+            dbc.Col(
+                dbc.Card(dbc.CardBody([
+                    html.H4("Visits", className="card-title"),
+                    html.Div(id="visits-table"),
+                ])),
+                width=12,
+            ),
+            className="mb-4",
+        ),
 
         # ── End form (revealed after visit is created) ────────────────────────────
         dbc.Collapse(
@@ -871,6 +913,30 @@ def add_end(
 
 
 # ── Existing stat callbacks ──────────────────────────────────────────────────────
+
+@dash.callback(
+    dash.Output("visits-table", "children"),
+    dash.Input("visits-table", "id"),
+)
+def update_visits_table(_):
+    data = get_visits_data()
+    if not data:
+        return html.P("No visits recorded.")
+    df = pd.DataFrame(data)
+    return DataTable(
+        columns=[{"name": c, "id": c} for c in df.columns],
+        data=df.to_dict("records"),
+        sort_action="native",
+        filter_action="native",
+        page_action="native",
+        page_size=25,
+        style_cell={"textAlign": "left", "padding": "10px"},
+        style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
+        style_data_conditional=[
+            {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"}
+        ],
+    )
+
 
 @dash.callback(
     dash.Output("shots-by-model-table", "children"),
