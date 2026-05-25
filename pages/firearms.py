@@ -353,17 +353,6 @@ layout = dbc.Container(
 
         dbc.Row(dbc.Col(html.Div(id="fv-alert"), width=12), className="mb-2"),
 
-        dbc.Row(
-            dbc.Col(
-                dbc.Card(dbc.CardBody([
-                    html.H4("Visits", className="card-title"),
-                    html.Div(id="visits-table"),
-                ])),
-                width=12,
-            ),
-            className="mb-4",
-        ),
-
         # ── End form (revealed after visit is created) ────────────────────────────
         dbc.Collapse(
             id="fe-collapse",
@@ -607,6 +596,17 @@ layout = dbc.Container(
 
         dbc.Row(dbc.Col(html.Div(id="fe-alert"), width=12), className="mb-2"),
         dbc.Row(dbc.Col(html.Div(id="fe-ends-table"), width=12), className="mb-4"),
+
+        dbc.Row(
+            dbc.Col(
+                dbc.Card(dbc.CardBody([
+                    html.H4("Visits", className="card-title"),
+                    html.Div(id="visits-table"),
+                ])),
+                width=12,
+            ),
+            className="mb-4",
+        ),
 
         dcc.Store(id="fv-visit-id-store", data=None),
         dcc.Store(id="fe-ends-store", data=[]),
@@ -929,7 +929,7 @@ def update_visits_table(_):
         sort_action="native",
         filter_action="native",
         page_action="native",
-        page_size=25,
+        page_size=10,
         style_cell={"textAlign": "left", "padding": "10px"},
         style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
         style_data_conditional=[
