@@ -163,8 +163,34 @@ def get_transactions_detail(month, category, subcategory):
         return []
 
 
-# Helper: query transactions with optional month and category filters
-def get_filtered_transactions(month=None, category=None):
+# Helper: distinct subcategory names for a given category (accepts enum name)
+def get_subcategories_for_category(category_enum_name):
+    try:
+        category_value = getattr(ExpenseCat, category_enum_name).value
+    except AttributeError:
+        return []
+    try:
+        from models import Session
+        session = Session()
+        rows = session.execute(
+            text("""
+                SELECT DISTINCT COALESCE(b.subcategory, '') AS subcategory
+                FROM expense_transactions t
+                LEFT JOIN expense_budget b ON t.expense_budget_id = b.id
+                WHERE t.category = :category
+                ORDER BY subcategory
+            """),
+            {"category": category_value},
+        ).fetchall()
+        session.close()
+        return [r.subcategory for r in rows]
+    except Exception as e:
+        print(f"Error querying subcategories: {e}")
+        return []
+
+
+# Helper: query transactions with optional month list, category, and subcategory filters
+def get_filtered_transactions(months=None, category=None, subcategory=None):
     try:
         from models import Session
         session = Session()
@@ -191,9 +217,12 @@ def get_filtered_transactions(month=None, category=None):
 
         data = []
         for row, budget in rows:
-            if month and row.transaction_date.strftime("%Y-%m") != month:
+            if months and row.transaction_date.strftime("%Y-%m") not in months:
                 continue
             if category_value and row.category != category_value:
+                continue
+            budget_subcategory = budget.subcategory if budget else ""
+            if subcategory is not None and budget_subcategory != subcategory:
                 continue
             budget_label = f"{budget.category} ({budget.subcategory})" if budget else ""
             data.append({
@@ -452,6 +481,7 @@ layout = dbc.Container(
                     options=get_available_months(),
                     placeholder="All months",
                     clearable=True,
+                    multi=True,
                 ),
             ], md=4),
             dbc.Col([
@@ -461,6 +491,16 @@ layout = dbc.Container(
                     options=[{"label": display, "value": enum_name} for display, enum_name in get_categories()],
                     placeholder="All categories",
                     clearable=True,
+                ),
+            ], md=4),
+            dbc.Col([
+                html.Label("Filter by Sub-Category"),
+                dcc.Dropdown(
+                    id="trans-filter-subcategory",
+                    options=[],
+                    placeholder="All sub-categories",
+                    clearable=True,
+                    disabled=True,
                 ),
             ], md=4),
         ], className="mb-3"),
@@ -613,15 +653,31 @@ def update_detail_table(subcat_selected, subcat_data, cat_selected, cat_data, mo
     return data, {"display": "block"}, header
 
 
+# Callback: populate sub-category filter when category is selected
+@callback(
+    Output("trans-filter-subcategory", "options"),
+    Output("trans-filter-subcategory", "value"),
+    Output("trans-filter-subcategory", "disabled"),
+    Input("trans-filter-category", "value"),
+)
+def populate_subcategory_filter(category):
+    if not category:
+        return [], None, True
+    subcategories = get_subcategories_for_category(category)
+    options = [{"label": s or "(no subcategory)", "value": s} for s in subcategories]
+    return options, None, False
+
+
 # Callback: filter transactions table
 @callback(
     Output("trans-table", "children"),
     Input("trans-filter-month", "value"),
     Input("trans-filter-category", "value"),
+    Input("trans-filter-subcategory", "value"),
     Input("trans-refresh-trigger", "data"),
 )
-def filter_table(month, category, _trigger):
-    data = get_filtered_transactions(month=month, category=category)
+def filter_table(months, category, subcategory, _trigger):
+    data = get_filtered_transactions(months=months, category=category, subcategory=subcategory)
     if not data:
         return html.P("No transactions found.", className="text-muted")
     df = pd.DataFrame(data)
