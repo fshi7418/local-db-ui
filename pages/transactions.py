@@ -8,6 +8,7 @@ from datetime import datetime
 import sys
 
 # Import from local-db backend
+from sqlalchemy import text
 from models import postgres_session
 from models.transactions import ExpenseTransactions, ExpenseBudget
 from transaction_configs import ExpenseCat, ExpenseSource
@@ -77,6 +78,88 @@ def get_available_months():
         return [{"label": datetime.strptime(m, "%Y-%m").strftime("%B %Y"), "value": m} for m in months]
     except Exception as e:
         print(f"Error querying months: {e}")
+        return []
+
+
+# Helper: sum amount by category for a given month
+def get_category_summary(month):
+    try:
+        from models import Session
+        session = Session()
+        rows = session.execute(
+            text("""
+                SELECT t.category, SUM(t.amount) AS amount
+                FROM expense_transactions t
+                WHERE to_char(t.transaction_date, 'YYYY-MM') = :month
+                GROUP BY t.category
+                ORDER BY t.category
+            """),
+            {"month": month},
+        ).fetchall()
+        session.close()
+        return [{"Category": r.category, "Amount": r.amount} for r in rows]
+    except Exception as e:
+        print(f"Error querying category summary: {e}")
+        return []
+
+
+# Helper: sum amount by subcategory for a given month + category
+def get_subcategory_summary(month, category):
+    try:
+        from models import Session
+        session = Session()
+        rows = session.execute(
+            text("""
+                SELECT COALESCE(b.subcategory, '') AS subcategory, SUM(t.amount) AS amount
+                FROM expense_transactions t
+                LEFT JOIN expense_budget b ON t.expense_budget_id = b.id
+                WHERE to_char(t.transaction_date, 'YYYY-MM') = :month
+                  AND t.category = :category
+                GROUP BY b.subcategory
+                ORDER BY b.subcategory
+            """),
+            {"month": month, "category": category},
+        ).fetchall()
+        session.close()
+        return [{"Sub-Category": r.subcategory, "Amount": r.amount} for r in rows]
+    except Exception as e:
+        print(f"Error querying subcategory summary: {e}")
+        return []
+
+
+# Helper: individual transactions for a given month + category + subcategory
+def get_transactions_detail(month, category, subcategory):
+    try:
+        from models import Session
+        session = Session()
+        rows = session.execute(
+            text("""
+                SELECT
+                    t.transaction_date AS date,
+                    t.amount,
+                    t.expense_source AS source,
+                    t.expense_comment AS comment
+                FROM expense_transactions t
+                LEFT JOIN expense_budget b ON t.expense_budget_id = b.id
+                WHERE to_char(t.transaction_date, 'YYYY-MM') = :month
+                  AND t.category = :category
+                  AND COALESCE(b.subcategory, '') = :subcategory
+                ORDER BY t.transaction_date DESC, t.id DESC
+            """),
+            {"month": month, "category": category, "subcategory": subcategory},
+        ).fetchall()
+        session.close()
+        return [
+            {
+                "Date": r.date.strftime("%Y-%m-%d"),
+                "Amount": r.amount,
+                "Source": r.source or "",
+                "Comment": r.comment or "",
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        print(f"Error querying transaction detail: {e}")
         return []
 
 
@@ -256,6 +339,101 @@ layout = dbc.Container(
             className="mb-3",
         ),
 
+        # Monthly drill-down: category → subcategory → transactions
+        dbc.Row(
+            dbc.Col([
+                html.H4("Monthly Summary"),
+                dbc.Row(
+                    dbc.Col([
+                        html.Label("Select Month"),
+                        dcc.Dropdown(
+                            id="trans-summary-month",
+                            options=get_available_months(),
+                            placeholder="Select a month",
+                            clearable=True,
+                        ),
+                    ], md=4),
+                    className="mb-3",
+                ),
+                html.P(
+                    "Select a month to see the summary.",
+                    id="trans-cat-placeholder",
+                    className="text-muted",
+                ),
+                DataTable(
+                    id="trans-cat-datatable",
+                    columns=[
+                        {"name": "Category", "id": "Category"},
+                        {"name": "Amount", "id": "Amount", "type": "numeric", "format": {"specifier": "$.2f"}},
+                    ],
+                    data=[],
+                    row_selectable="single",
+                    selected_rows=[],
+                    sort_action="native",
+                    style_cell={"textAlign": "left", "padding": "10px"},
+                    style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
+                    style_data_conditional=[
+                        {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"},
+                        {"if": {"state": "selected"}, "backgroundColor": "rgba(0, 116, 217, 0.1)", "border": "1px solid #0074D9"},
+                    ],
+                ),
+            ], width=12),
+            className="mb-2",
+        ),
+
+        # Subcategory breakdown (shown when a category row is selected)
+        dbc.Row(
+            dbc.Col([
+                html.Div(id="trans-subcat-header"),
+                DataTable(
+                    id="trans-subcat-datatable",
+                    columns=[
+                        {"name": "Sub-Category", "id": "Sub-Category"},
+                        {"name": "Amount", "id": "Amount", "type": "numeric", "format": {"specifier": "$.2f"}},
+                    ],
+                    data=[],
+                    row_selectable="single",
+                    selected_rows=[],
+                    sort_action="native",
+                    style_cell={"textAlign": "left", "padding": "10px"},
+                    style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
+                    style_data_conditional=[
+                        {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"},
+                        {"if": {"state": "selected"}, "backgroundColor": "rgba(0, 116, 217, 0.1)", "border": "1px solid #0074D9"},
+                    ],
+                ),
+            ], width=12),
+            id="trans-subcat-row",
+            style={"display": "none"},
+            className="mb-2",
+        ),
+
+        # Transaction detail (shown when a subcategory row is selected)
+        dbc.Row(
+            dbc.Col([
+                html.Div(id="trans-detail-header"),
+                DataTable(
+                    id="trans-detail-datatable",
+                    columns=[
+                        {"name": "Date", "id": "Date"},
+                        {"name": "Amount", "id": "Amount", "type": "numeric", "format": {"specifier": "$.2f"}},
+                        {"name": "Source", "id": "Source"},
+                        {"name": "Comment", "id": "Comment"},
+                    ],
+                    data=[],
+                    sort_action="native",
+                    style_cell={"textAlign": "left", "padding": "10px"},
+                    style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
+                    style_data_conditional=[
+                        {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"},
+                    ],
+                ),
+            ], width=12),
+            id="trans-detail-row",
+            style={"display": "none"},
+            className="mb-4",
+        ),
+
         # Spending chart
         dbc.Row(
             dbc.Col(
@@ -373,6 +551,66 @@ def submit_transaction(n_clicks, is_today, date_str, amount, category, source, b
     except Exception as e:
         alert = dbc.Alert(f"Error: {str(e)}", color="danger", dismissable=True)
         return alert, build_spending_chart(), trigger, amount, category, source, budget_id, comment
+
+
+# Callback: populate category summary table
+@callback(
+    Output("trans-cat-datatable", "data"),
+    Output("trans-cat-datatable", "selected_rows"),
+    Output("trans-cat-placeholder", "style"),
+    Input("trans-summary-month", "value"),
+    Input("trans-refresh-trigger", "data"),
+)
+def update_cat_table(month, _trigger):
+    if not month:
+        return [], [], {"display": "block"}
+    data = get_category_summary(month)
+    return data, [], {"display": "none"} if data else {"display": "block"}
+
+
+# Callback: drill down into subcategories when a category row is selected
+@callback(
+    Output("trans-subcat-datatable", "data"),
+    Output("trans-subcat-datatable", "selected_rows"),
+    Output("trans-subcat-row", "style"),
+    Output("trans-subcat-header", "children"),
+    Input("trans-cat-datatable", "selected_rows"),
+    State("trans-cat-datatable", "data"),
+    State("trans-summary-month", "value"),
+)
+def update_subcat_table(selected_rows, cat_data, month):
+    if not selected_rows or not cat_data or not month:
+        return [], [], {"display": "none"}, ""
+    category = cat_data[selected_rows[0]]["Category"]
+    data = get_subcategory_summary(month, category)
+    if not data:
+        return [], [], {"display": "none"}, ""
+    header = html.H5(f"Breakdown: {category}", className="mt-3 mb-2")
+    return data, [], {"display": "block"}, header
+
+
+# Callback: drill down into transactions when a subcategory row is selected
+@callback(
+    Output("trans-detail-datatable", "data"),
+    Output("trans-detail-row", "style"),
+    Output("trans-detail-header", "children"),
+    Input("trans-subcat-datatable", "selected_rows"),
+    State("trans-subcat-datatable", "data"),
+    State("trans-cat-datatable", "selected_rows"),
+    State("trans-cat-datatable", "data"),
+    State("trans-summary-month", "value"),
+)
+def update_detail_table(subcat_selected, subcat_data, cat_selected, cat_data, month):
+    if not subcat_selected or not subcat_data or not cat_selected or not cat_data or not month:
+        return [], {"display": "none"}, ""
+    category = cat_data[cat_selected[0]]["Category"]
+    subcategory = subcat_data[subcat_selected[0]]["Sub-Category"]
+    data = get_transactions_detail(month, category, subcategory)
+    if not data:
+        return [], {"display": "none"}, ""
+    label = subcategory or "(no subcategory)"
+    header = html.H5(f"Transactions: {category} › {label}", className="mt-3 mb-2")
+    return data, {"display": "block"}, header
 
 
 # Callback: filter transactions table
