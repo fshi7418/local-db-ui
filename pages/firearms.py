@@ -227,6 +227,38 @@ def get_shots_by_model():
         return []
 
 
+def get_shots_by_ammunition():
+    try:
+        session = Session()
+        query = text("""
+            select a.name as ammunition, max(m.name) as manufacturer, max(c.name) as cartridge, a.casing, a.tip, a.muzzle_velocity_fps, a.weight_grain, sum(e.quantity) as num_shots
+            from firearm_end e, firearm_ammunition a, firearm_cartridge c, firearm_manufacturer m
+            where e.firearm_ammunition_id = a.id
+            and a.firearm_cartridge_id = c.id
+            and a.firearm_manufacturer_id = m.id
+            group by a.id
+            order by sum(e.quantity) desc
+        """)
+        result = session.execute(query).fetchall()
+        session.close()
+        return [
+            {
+                "Ammunition": r[0],
+                "Manufacturer": r[1],
+                "Cartridge": r[2],
+                "Casing": r[3],
+                "Tip": r[4],
+                "Muzzle Velocity (fps)": r[5],
+                "Weight (grain)": r[6],
+                "Num Shots": int(r[7]) if r[7] else 0,
+            }
+            for r in result
+        ]
+    except Exception as e:
+        print(f"Error querying shots by ammunition: {e}")
+        return []
+
+
 def get_shots_by_cartridge():
     try:
         session = Session()
@@ -657,6 +689,17 @@ layout = dbc.Container(
         dbc.Row(
             dbc.Col(
                 dbc.Card(dbc.CardBody([
+                    html.H4("Shots by Ammunition", className="card-title"),
+                    html.Div(id="shots-by-ammunition-table"),
+                ])),
+                width=12,
+            ),
+            className="mb-4",
+        ),
+
+        dbc.Row(
+            dbc.Col(
+                dbc.Card(dbc.CardBody([
                     html.H4("Ammunition", className="card-title"),
                     html.Div(id="ammunition-table"),
                 ])),
@@ -978,6 +1021,17 @@ def update_shots_by_model(_):
 )
 def update_shots_by_cartridge(_):
     data = get_shots_by_cartridge()
+    if not data:
+        return html.P("No data available")
+    return dbc.Table.from_dataframe(pd.DataFrame(data), striped=True, bordered=True, hover=True)
+
+
+@dash.callback(
+    dash.Output("shots-by-ammunition-table", "children"),
+    dash.Input("shots-by-ammunition-table", "id"),
+)
+def update_shots_by_ammunition(_):
+    data = get_shots_by_ammunition()
     if not data:
         return html.P("No data available")
     return dbc.Table.from_dataframe(pd.DataFrame(data), striped=True, bordered=True, hover=True)
