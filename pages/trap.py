@@ -15,7 +15,7 @@ def get_trap_rounds(discipline=None):
         session = Session()
         query = text("""
             select
-                t.id, v.visit_date, e.id as end_id, t.discipline, m."name" as gun,
+                t.id, v.visit_date, e.id as end_id, t.discipline, ttp.target_presentation, m."name" as gun,
                 a."name" as ammunition, car.name as cartridge, car.shot_size as shot,
                 c_ma."name" as choke_manufacturer, c."name" as choke,
                 c.constriction, c.diametre_in, t.num_break
@@ -27,6 +27,7 @@ def get_trap_rounds(discipline=None):
             join trap_round t on e.id = t.firearm_end_id
             left join shotgun_choke c on t.shotgun_choke_id = c.id
             left join firearm_manufacturer c_ma on c.firearm_manufacturer_id = c_ma.id
+            left join trap_target_presentation ttp on t.trap_target_presentation_id = ttp.id
             order by visit_date desc, e.id desc
         """)
         result = session.execute(query).fetchall()
@@ -41,14 +42,15 @@ def get_trap_rounds(discipline=None):
                 "Visit Date": row[1].strftime("%Y-%m-%d") if row[1] else None,
                 "End ID": row[2],
                 "Discipline": row[3],
-                "Breaks": row[12],
-                "Gun": row[4],
-                "Choke": row[9],
-                "Constriction": row[10],
-                "Choke Mfr": row[8],
-                "Ammunition": row[5],
-                "Cartridge": row[6],
-                "Shot": row[7],
+                "Target Presentation": row[4],
+                "Breaks": row[13],
+                "Gun": row[5],
+                "Choke": row[10],
+                "Constriction": row[11],
+                "Choke Mfr": row[9],
+                "Ammunition": row[6],
+                "Cartridge": row[7],
+                "Shot": row[8],
             })
         return data
     except Exception as e:
@@ -68,18 +70,19 @@ def get_disciplines():
 
 
 COLUMNS = [
-    {"name": "ID",            "id": "ID",            "type": "numeric"},
-    {"name": "Visit Date",    "id": "Visit Date",    "type": "text"},
-    {"name": "End ID",        "id": "End ID",        "type": "numeric"},
-    {"name": "Discipline",    "id": "Discipline",    "type": "text"},
-    {"name": "Breaks",        "id": "Breaks",        "type": "numeric"},
-    {"name": "Gun",           "id": "Gun",           "type": "text"},
-    {"name": "Choke",         "id": "Choke",         "type": "text"},
-    {"name": "Constriction",  "id": "Constriction",  "type": "text"},
-    {"name": "Choke Mfr",    "id": "Choke Mfr",    "type": "text"},
-    {"name": "Ammunition",    "id": "Ammunition",    "type": "text"},
-    {"name": "Cartridge",     "id": "Cartridge",     "type": "text"},
-    {"name": "Shot",          "id": "Shot",          "type": "text"},
+    {"name": "ID",                    "id": "ID",                    "type": "numeric"},
+    {"name": "Visit Date",            "id": "Visit Date",            "type": "text"},
+    {"name": "End ID",                "id": "End ID",                "type": "numeric"},
+    {"name": "Discipline",            "id": "Discipline",            "type": "text"},
+    {"name": "Target Presentation",   "id": "Target Presentation",   "type": "text"},
+    {"name": "Breaks",                "id": "Breaks",                "type": "numeric"},
+    {"name": "Gun",                   "id": "Gun",                   "type": "text"},
+    {"name": "Choke",                 "id": "Choke",                 "type": "text"},
+    {"name": "Constriction",          "id": "Constriction",          "type": "text"},
+    {"name": "Choke Mfr",            "id": "Choke Mfr",            "type": "text"},
+    {"name": "Ammunition",            "id": "Ammunition",            "type": "text"},
+    {"name": "Cartridge",             "id": "Cartridge",             "type": "text"},
+    {"name": "Shot",                  "id": "Shot",                  "type": "text"},
 ]
 
 layout = dbc.Container(
