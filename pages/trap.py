@@ -92,15 +92,25 @@ layout = dbc.Container(
             className="mb-4",
         ),
         dbc.Row(
-            dbc.Col([
-                html.Label("Filter by Discipline"),
-                dcc.Dropdown(
-                    id="trap-filter-discipline",
-                    options=get_disciplines(),
-                    placeholder="All disciplines",
-                    clearable=True,
-                ),
-            ], md=4),
+            [
+                dbc.Col([
+                    html.Label("Filter by Discipline"),
+                    dcc.Dropdown(
+                        id="trap-filter-discipline",
+                        options=get_disciplines(),
+                        placeholder="All disciplines",
+                        clearable=True,
+                    ),
+                ], md=4),
+                dbc.Col([
+                    html.Label("Date Range"),
+                    dcc.DatePickerRange(
+                        id="trap-filter-date-range",
+                        display_format="YYYY-MM-DD",
+                        clearable=True,
+                    ),
+                ], md=5),
+            ],
             className="mb-3",
         ),
         dbc.Row(
@@ -117,9 +127,15 @@ layout = dbc.Container(
 @callback(
     Output("trap-rounds-datatable", "children"),
     Input("trap-filter-discipline", "value"),
+    Input("trap-filter-date-range", "start_date"),
+    Input("trap-filter-date-range", "end_date"),
 )
-def load_trap_table(discipline):
+def load_trap_table(discipline, start_date, end_date):
     data = get_trap_rounds(discipline=discipline)
+    if start_date:
+        data = [r for r in data if r["Visit Date"] and r["Visit Date"] >= start_date]
+    if end_date:
+        data = [r for r in data if r["Visit Date"] and r["Visit Date"] <= end_date]
     if not data:
         return html.P("No trap rounds found.", className="text-muted")
     df = pd.DataFrame(data)
