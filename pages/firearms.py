@@ -310,7 +310,7 @@ STANCE_OPTIONS = [
 ]
 
 TRAP_STYLE_OPTIONS = [
-    {"label": "Olympic", "value": "Olympic"},
+    {"label": "International", "value": "International"},
     {"label": "American (ATA)", "value": "American"},
 ]
 
