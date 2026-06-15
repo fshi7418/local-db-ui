@@ -7,7 +7,7 @@ from sqlalchemy import text
 from datetime import datetime
 
 from models import Session, postgres_session
-from models.firearm import FirearmVisit, FirearmEnd, TrapRound, TrapShot, FirearmRange
+from models.firearm import FirearmVisit, FirearmEnd, TrapRound, TrapShot, SkeetRound, FirearmRange
 
 dash.register_page(__name__, path="/firearms")
 
@@ -314,7 +314,12 @@ TRAP_STYLE_OPTIONS = [
     {"label": "American (ATA)", "value": "American"},
 ]
 
-# Default reset values for end form fields (26 values matching add_end outputs 4–29)
+SKEET_STYLE_OPTIONS = [
+    {"label": "International", "value": "International"},
+    {"label": "American", "value": "American"},
+]
+
+# Default reset values for end form fields (32 values, one per add_end output after alert/store/table)
 _RESET_END = (
     None, "ammo", None, None,     # model, ammo-type, ammo, cartridge
     None, "yd", None,             # quantity, dist-unit, distance
@@ -323,6 +328,7 @@ _RESET_END = (
     False, "yd", None, None,         # is-trap, trap-dist-unit, trap-distance, trap-style
     None, None, None, None, False,   # trap-num-break, trap-start-station, trap-choke, trap-target-presentation, trap-by-station
     None, None, None, None, None, # station 1–5
+    False, None, None, None, None,   # is-skeet, skeet-discipline, skeet-num-break, skeet-choke1, skeet-choke2
 )
 
 
@@ -632,6 +638,64 @@ layout = dbc.Container(
                     ]), className="bg-light"),
                 ),
 
+                # Skeet round toggle
+                dbc.Row(
+                    dbc.Col([
+                        html.Label("Is this a Skeet Round?"),
+                        dbc.RadioItems(
+                            id="fe-is-skeet",
+                            options=[
+                                {"label": " Yes", "value": True},
+                                {"label": " No", "value": False},
+                            ],
+                            value=False,
+                            inline=True,
+                        ),
+                    ], md=6),
+                    className="mb-2 mt-2",
+                ),
+
+                # Skeet round details (collapsible)
+                dbc.Collapse(
+                    id="fe-skeet-collapse",
+                    is_open=False,
+                    children=dbc.Card(dbc.CardBody([
+                        html.H6("Skeet Round Details"),
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("Discipline *"),
+                                dcc.Dropdown(
+                                    id="fe-skeet-discipline",
+                                    options=SKEET_STYLE_OPTIONS,
+                                    placeholder="Select discipline",
+                                ),
+                            ], md=3),
+                            dbc.Col([
+                                html.Label("Num Breaks (optional)"),
+                                dbc.Input(id="fe-skeet-num-break", type="number", min=0),
+                            ], md=2),
+                        ], className="mb-3"),
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("Choke 1 (optional)"),
+                                dcc.Dropdown(
+                                    id="fe-skeet-choke1",
+                                    options=get_shotgun_chokes(),
+                                    placeholder="Select choke",
+                                ),
+                            ], md=5),
+                            dbc.Col([
+                                html.Label("Choke 2 (optional)"),
+                                dcc.Dropdown(
+                                    id="fe-skeet-choke2",
+                                    options=get_shotgun_chokes(),
+                                    placeholder="Select choke",
+                                ),
+                            ], md=5),
+                        ], className="mb-3"),
+                    ]), className="bg-light"),
+                ),
+
                 html.Hr(),
                 dbc.Row([
                     dbc.Col(
@@ -790,10 +854,19 @@ def toggle_ammo_cartridge(ammo_type):
 
 @callback(
     Output("fe-trap-collapse", "is_open"),
+    Output("fe-skeet-collapse", "is_open"),
+    Output("fe-is-trap", "value"),
+    Output("fe-is-skeet", "value"),
     Input("fe-is-trap", "value"),
+    Input("fe-is-skeet", "value"),
 )
-def toggle_trap(is_trap):
-    return bool(is_trap)
+def toggle_trap_skeet(is_trap, is_skeet):
+    # An end cannot be both a trap round and a skeet round.
+    if ctx.triggered_id == "fe-is-trap" and is_trap:
+        is_skeet = False
+    elif ctx.triggered_id == "fe-is-skeet" and is_skeet:
+        is_trap = False
+    return bool(is_trap), bool(is_skeet), is_trap, is_skeet
 
 
 @callback(
@@ -821,7 +894,7 @@ def toggle_stations(by_station):
     Output("fe-support-hands", "value"),
     Output("fe-sight", "value"),
     Output("fe-stance", "value"),
-    Output("fe-is-trap", "value"),
+    Output("fe-is-trap", "value", allow_duplicate=True),
     Output("fe-trap-dist-unit", "value"),
     Output("fe-trap-distance", "value"),
     Output("fe-trap-style", "value"),
@@ -835,6 +908,11 @@ def toggle_stations(by_station):
     Output("fe-station-3", "value"),
     Output("fe-station-4", "value"),
     Output("fe-station-5", "value"),
+    Output("fe-is-skeet", "value", allow_duplicate=True),
+    Output("fe-skeet-discipline", "value"),
+    Output("fe-skeet-num-break", "value"),
+    Output("fe-skeet-choke1", "value"),
+    Output("fe-skeet-choke2", "value"),
     Input("fe-add-btn", "n_clicks"),
     State("fv-visit-id-store", "data"),
     State("fe-model", "value"),
@@ -864,6 +942,11 @@ def toggle_stations(by_station):
     State("fe-station-3", "value"),
     State("fe-station-4", "value"),
     State("fe-station-5", "value"),
+    State("fe-is-skeet", "value"),
+    State("fe-skeet-discipline", "value"),
+    State("fe-skeet-num-break", "value"),
+    State("fe-skeet-choke1", "value"),
+    State("fe-skeet-choke2", "value"),
     State("fe-ends-store", "data"),
     prevent_initial_call=True,
 )
@@ -876,6 +959,7 @@ def add_end(
     is_trap, trap_dist_unit, trap_distance, trap_style,
     trap_num_break, trap_start_station, trap_choke_id, trap_target_presentation_id, trap_by_station,
     s1, s2, s3, s4, s5,
+    is_skeet, skeet_discipline, skeet_num_break, skeet_choke1, skeet_choke2,
     ends_store,
 ):
     ends_store = ends_store or []
@@ -891,6 +975,10 @@ def add_end(
         return warn("No visit created yet.")
     if not model_id:
         return warn("Firearm model is required.")
+    if is_trap and is_skeet:
+        return warn("An end cannot be both a trap round and a skeet round.")
+    if is_skeet and not skeet_discipline:
+        return warn("Skeet discipline is required.")
 
     try:
         distance_m = None
@@ -954,6 +1042,17 @@ def add_end(
                             num_break=int(breaks),
                         ))
 
+        if is_skeet:
+            skeet_obj = SkeetRound(
+                firearm_end_id=end_obj.id,
+                discipline=skeet_discipline,
+                num_break=int(skeet_num_break) if skeet_num_break is not None else None,
+                shotgun_choke_id1=int(skeet_choke1) if skeet_choke1 else None,
+                shotgun_choke_id2=int(skeet_choke2) if skeet_choke2 else None,
+            )
+            postgres_session.add(skeet_obj)
+            postgres_session.flush()
+
         postgres_session.commit()
 
         new_row = {
@@ -961,6 +1060,7 @@ def add_end(
             "Qty": quantity if quantity is not None else "",
             "Dist (m)": round(distance_m, 1) if distance_m is not None else "",
             "Trap": "Yes" if is_trap else "No",
+            "Skeet": "Yes" if is_skeet else "No",
         }
         new_store = ends_store + [new_row]
         return (

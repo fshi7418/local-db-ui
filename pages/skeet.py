@@ -17,16 +17,17 @@ def get_skeet_rounds():
             select
                 sk.id, v.visit_date, e.id as end_id, sk.discipline, m."name" as gun,
                 a."name" as ammunition, car.name as cartridge, car.shot_size as shot,
-                c_ma."name" as choke_manufacturer, c."name" as choke,
-                c.constriction, c.diametre_in, sk.num_break
+                c1."name" as choke1, c1.constriction as constriction1,
+                c2."name" as choke2, c2.constriction as constriction2,
+                sk.num_break
             from firearm_visit v
             join firearm_end e on v.id = e.firearm_visit_id
             join firearm_model m on e.firearm_model_id = m.id
             join firearm_ammunition a on e.firearm_ammunition_id = a.id
             join firearm_cartridge car on a.firearm_cartridge_id = car.id
             join skeet_round sk on e.id = sk.firearm_end_id
-            left join shotgun_choke c on sk.shotgun_choke_id = c.id
-            left join firearm_manufacturer c_ma on c.firearm_manufacturer_id = c_ma.id
+            left join shotgun_choke c1 on sk.shotgun_choke_id1 = c1.id
+            left join shotgun_choke c2 on sk.shotgun_choke_id2 = c2.id
             order by visit_date desc, e.id desc
         """)
         result = session.execute(query).fetchall()
@@ -43,10 +44,10 @@ def get_skeet_rounds():
                 "Ammunition": row[5],
                 "Cartridge": row[6],
                 "Shot": row[7],
-                "Choke Mfr": row[8],
-                "Choke": row[9],
-                "Constriction": row[10],
-                "Diameter (in)": row[11],
+                "Choke 1": row[8],
+                "Constriction 1": row[9],
+                "Choke 2": row[10],
+                "Constriction 2": row[11],
                 "Breaks": row[12],
             })
         return data
@@ -62,9 +63,10 @@ COLUMNS = [
     {"name": "Discipline",   "id": "Discipline",   "type": "text"},
     {"name": "Gun",          "id": "Gun",          "type": "text"},
     {"name": "Breaks",       "id": "Breaks",       "type": "numeric"},
-    {"name": "Choke",        "id": "Choke",        "type": "text"},
-    {"name": "Choke Mfr",   "id": "Choke Mfr",   "type": "text"},
-    {"name": "Constriction", "id": "Constriction", "type": "text"},
+    {"name": "Choke 1",      "id": "Choke 1",      "type": "text"},
+    {"name": "Constriction 1", "id": "Constriction 1", "type": "text"},
+    {"name": "Choke 2",      "id": "Choke 2",      "type": "text"},
+    {"name": "Constriction 2", "id": "Constriction 2", "type": "text"},
     {"name": "Ammunition",   "id": "Ammunition",   "type": "text"},
     {"name": "Cartridge",    "id": "Cartridge",    "type": "text"},
     {"name": "Shot",         "id": "Shot",         "type": "text"},
