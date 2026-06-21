@@ -319,7 +319,7 @@ SKEET_STYLE_OPTIONS = [
     {"label": "American", "value": "American"},
 ]
 
-# Default reset values for end form fields (32 values, one per add_end output after alert/store/table)
+# Default reset values for end form fields (33 values, one per add_end output after alert/store/table)
 _RESET_END = (
     None, "ammo", None, None,     # model, ammo-type, ammo, cartridge
     None, "yd", None,             # quantity, dist-unit, distance
@@ -328,7 +328,7 @@ _RESET_END = (
     False, "yd", None, None,         # is-trap, trap-dist-unit, trap-distance, trap-style
     None, None, None, None, False,   # trap-num-break, trap-start-station, trap-choke, trap-target-presentation, trap-by-station
     None, None, None, None, None, # station 1–5
-    False, None, None, None, None,   # is-skeet, skeet-discipline, skeet-num-break, skeet-choke1, skeet-choke2
+    False, None, None, None, None, False,   # is-skeet, skeet-discipline, skeet-num-break, skeet-choke1, skeet-choke2, skeet-low-gun-start
 )
 
 
@@ -674,6 +674,18 @@ layout = dbc.Container(
                                 html.Label("Num Breaks (optional)"),
                                 dbc.Input(id="fe-skeet-num-break", type="number", min=0),
                             ], md=2),
+                            dbc.Col([
+                                html.Label("Low Gun Start?"),
+                                dbc.RadioItems(
+                                    id="fe-skeet-low-gun-start",
+                                    options=[
+                                        {"label": " Yes", "value": True},
+                                        {"label": " No", "value": False},
+                                    ],
+                                    value=False,
+                                    inline=True,
+                                ),
+                            ], md=3),
                         ], className="mb-3"),
                         dbc.Row([
                             dbc.Col([
@@ -913,6 +925,7 @@ def toggle_stations(by_station):
     Output("fe-skeet-num-break", "value"),
     Output("fe-skeet-choke1", "value"),
     Output("fe-skeet-choke2", "value"),
+    Output("fe-skeet-low-gun-start", "value"),
     Input("fe-add-btn", "n_clicks"),
     State("fv-visit-id-store", "data"),
     State("fe-model", "value"),
@@ -947,6 +960,7 @@ def toggle_stations(by_station):
     State("fe-skeet-num-break", "value"),
     State("fe-skeet-choke1", "value"),
     State("fe-skeet-choke2", "value"),
+    State("fe-skeet-low-gun-start", "value"),
     State("fe-ends-store", "data"),
     prevent_initial_call=True,
 )
@@ -959,7 +973,7 @@ def add_end(
     is_trap, trap_dist_unit, trap_distance, trap_style,
     trap_num_break, trap_start_station, trap_choke_id, trap_target_presentation_id, trap_by_station,
     s1, s2, s3, s4, s5,
-    is_skeet, skeet_discipline, skeet_num_break, skeet_choke1, skeet_choke2,
+    is_skeet, skeet_discipline, skeet_num_break, skeet_choke1, skeet_choke2, skeet_low_gun_start,
     ends_store,
 ):
     ends_store = ends_store or []
@@ -1049,6 +1063,7 @@ def add_end(
                 num_break=int(skeet_num_break) if skeet_num_break is not None else None,
                 shotgun_choke_id1=int(skeet_choke1) if skeet_choke1 else None,
                 shotgun_choke_id2=int(skeet_choke2) if skeet_choke2 else None,
+                low_gun_start=bool(skeet_low_gun_start),
             )
             postgres_session.add(skeet_obj)
             postgres_session.flush()

@@ -15,7 +15,7 @@ def get_skeet_rounds():
         session = Session()
         query = text("""
             select
-                sk.id, v.visit_date, e.id as end_id, sk.discipline, m."name" as gun,
+                sk.id, v.visit_date, e.id as end_id, sk.discipline, sk.low_gun_start, m."name" as gun,
                 a."name" as ammunition, car.name as cartridge, car.shot_size as shot,
                 c1."name" as choke1, c1.constriction as constriction1,
                 c2."name" as choke2, c2.constriction as constriction2,
@@ -40,15 +40,16 @@ def get_skeet_rounds():
                 "Visit Date": row[1].strftime("%Y-%m-%d") if row[1] else None,
                 "End ID": row[2],
                 "Discipline": row[3],
-                "Gun": row[4],
-                "Ammunition": row[5],
-                "Cartridge": row[6],
-                "Shot": row[7],
-                "Choke 1": row[8],
-                "Constriction 1": row[9],
-                "Choke 2": row[10],
-                "Constriction 2": row[11],
-                "Breaks": row[12],
+                "Low Gun Start": row[4],
+                "Gun": row[5],
+                "Ammunition": row[6],
+                "Cartridge": row[7],
+                "Shot": row[8],
+                "Choke 1": row[9],
+                "Constriction 1": row[10],
+                "Choke 2": row[11],
+                "Constriction 2": row[12],
+                "Breaks": row[13],
             })
         return data
     except Exception as e:
@@ -61,6 +62,7 @@ COLUMNS = [
     {"name": "Visit Date",   "id": "Visit Date",   "type": "text"},
     {"name": "End ID",       "id": "End ID",       "type": "numeric"},
     {"name": "Discipline",   "id": "Discipline",   "type": "text"},
+    {"name": "Low Gun Start", "id": "Low Gun Start", "type": "text"},
     {"name": "Gun",          "id": "Gun",          "type": "text"},
     {"name": "Breaks",       "id": "Breaks",       "type": "numeric"},
     {"name": "Choke 1",      "id": "Choke 1",      "type": "text"},
