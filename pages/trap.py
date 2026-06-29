@@ -18,7 +18,8 @@ def get_trap_rounds(discipline=None):
                 t.id, v.visit_date, e.id as end_id, t.discipline, ttp.target_presentation, m."name" as gun,
                 a."name" as ammunition, car.name as cartridge, car.shot_size as shot,
                 c_ma."name" as choke_manufacturer, c."name" as choke,
-                c.constriction, c.diametre_in, t.num_break
+                c.constriction, c.diametre_in, t.num_break,
+                t.distance_yard, t.distance_m
             from firearm_visit v
             join firearm_end e on v.id = e.firearm_visit_id
             join firearm_model m on e.firearm_model_id = m.id
@@ -42,6 +43,8 @@ def get_trap_rounds(discipline=None):
                 "Visit Date": row[1].strftime("%Y-%m-%d") if row[1] else None,
                 "End ID": row[2],
                 "Discipline": row[3],
+                "Dist (yd)": row[14],
+                "Dist (m)": row[15],
                 "Target Presentation": row[4],
                 "Breaks": row[13],
                 "Gun": row[5],
@@ -74,6 +77,8 @@ COLUMNS = [
     {"name": "Visit Date",            "id": "Visit Date",            "type": "text"},
     {"name": "End ID",                "id": "End ID",                "type": "numeric"},
     {"name": "Discipline",            "id": "Discipline",            "type": "text"},
+    {"name": "Dist (yd)",             "id": "Dist (yd)",             "type": "numeric"},
+    {"name": "Dist (m)",              "id": "Dist (m)",              "type": "numeric"},
     {"name": "Target Presentation",   "id": "Target Presentation",   "type": "text"},
     {"name": "Breaks",                "id": "Breaks",                "type": "numeric"},
     {"name": "Gun",                   "id": "Gun",                   "type": "text"},
