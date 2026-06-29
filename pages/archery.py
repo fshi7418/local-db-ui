@@ -1,5 +1,5 @@
 import dash
-from dash import html, callback, Input, Output
+from dash import html, dcc, callback, Input, Output
 from dash.dash_table import DataTable
 import dash_bootstrap_components as dbc
 import pandas as pd
@@ -107,6 +107,15 @@ def get_shots_categorized(start_date, end_date):
         print(f"Error querying shots categorized: {e}")
         return []
 
+ARCHERY_ROUND_COLUMNS = [
+    "ID", "Date", "Num Shots", "Avg Shots", "Total Score", "Scoring Rule",
+    "X", "10", "9", "Range", "Distance (m)", "Riser", "Limb", "Arrow",
+    "Arrow Rest", "Arrow Rest Type", "Release Aid", "Seconds/Arrow", "Spine",
+    "Draw Weight (lb)", "Sight", "Magnification", "StDev Ends", "StDev Shots",
+    "Sight Used", "Clicker", "Stabilisation", "Known Distance",
+    "Variable Distance", "Days Since Practice",
+]
+
 # Layout
 layout = dbc.Container(
     [
@@ -124,6 +133,15 @@ layout = dbc.Container(
                 dbc.Card(
                     dbc.CardBody([
                         html.H4("Archery Rounds", className="card-title"),
+                        html.Label("Columns to Display"),
+                        dcc.Dropdown(
+                            id="archery-rounds-columns",
+                            options=[{"label": col, "value": col} for col in ARCHERY_ROUND_COLUMNS],
+                            value=ARCHERY_ROUND_COLUMNS,
+                            multi=True,
+                            placeholder="Select columns",
+                            className="mb-3",
+                        ),
                         html.Div(id="archery-rounds-table"),
                     ]),
                 ),
@@ -170,9 +188,9 @@ layout = dbc.Container(
 # Callbacks to populate tables
 @dash.callback(
     dash.Output("archery-rounds-table", "children"),
-    dash.Input("archery-rounds-table", "id"),
+    dash.Input("archery-rounds-columns", "value"),
 )
-def update_archery_rounds(_):
+def update_archery_rounds(selected_columns):
     data = get_archery_rounds()
     if not data:
         return html.P("No data available")
@@ -183,9 +201,10 @@ def update_archery_rounds(_):
         "Distance (m)", "Seconds/Arrow", "Draw Weight (lb)", "Magnification",
         "StDev Ends", "StDev Shots", "Days Since Practice"
     ]
+    display_cols = [col for col in df.columns if not selected_columns or col in selected_columns]
     columns = [
         {"name": col, "id": col, "type": "numeric" if col in numeric_cols else "text"}
-        for col in df.columns
+        for col in display_cols
     ]
     return DataTable(
         columns=columns,

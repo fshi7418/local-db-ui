@@ -119,6 +119,19 @@ layout = dbc.Container(
             className="mb-3",
         ),
         dbc.Row(
+            dbc.Col([
+                html.Label("Columns to Display"),
+                dcc.Dropdown(
+                    id="trap-filter-columns",
+                    options=[{"label": col["name"], "value": col["id"]} for col in COLUMNS],
+                    value=[col["id"] for col in COLUMNS],
+                    multi=True,
+                    placeholder="Select columns",
+                ),
+            ], md=12),
+            className="mb-3",
+        ),
+        dbc.Row(
             dbc.Col(
                 dbc.Spinner(html.Div(id="trap-rounds-datatable")),
                 width=12,
@@ -134,8 +147,9 @@ layout = dbc.Container(
     Input("trap-filter-discipline", "value"),
     Input("trap-filter-date-range", "start_date"),
     Input("trap-filter-date-range", "end_date"),
+    Input("trap-filter-columns", "value"),
 )
-def load_trap_table(discipline, start_date, end_date):
+def load_trap_table(discipline, start_date, end_date, selected_columns):
     data = get_trap_rounds(discipline=discipline)
     if start_date:
         data = [r for r in data if r["Visit Date"] and r["Visit Date"] >= start_date]
@@ -143,9 +157,13 @@ def load_trap_table(discipline, start_date, end_date):
         data = [r for r in data if r["Visit Date"] and r["Visit Date"] <= end_date]
     if not data:
         return html.P("No trap rounds found.", className="text-muted")
+    if selected_columns:
+        columns = [col for col in COLUMNS if col["id"] in selected_columns]
+    else:
+        columns = COLUMNS
     df = pd.DataFrame(data)
     return DataTable(
-        columns=COLUMNS,
+        columns=columns,
         data=df.to_dict("records"),
         sort_action="native",
         filter_action="native",

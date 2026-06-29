@@ -1,5 +1,5 @@
 import dash
-from dash import html, callback, Input, Output
+from dash import html, dcc, callback, Input, Output
 from dash.dash_table import DataTable
 import dash_bootstrap_components as dbc
 import pandas as pd
@@ -81,6 +81,19 @@ layout = dbc.Container(
             className="mb-4",
         ),
         dbc.Row(
+            dbc.Col([
+                html.Label("Columns to Display"),
+                dcc.Dropdown(
+                    id="skeet-filter-columns",
+                    options=[{"label": col["name"], "value": col["id"]} for col in COLUMNS],
+                    value=[col["id"] for col in COLUMNS],
+                    multi=True,
+                    placeholder="Select columns",
+                ),
+            ], md=12),
+            className="mb-3",
+        ),
+        dbc.Row(
             dbc.Col(
                 dbc.Spinner(html.Div(id="skeet-table")),
                 width=12,
@@ -93,15 +106,19 @@ layout = dbc.Container(
 
 @callback(
     Output("skeet-table", "children"),
-    Input("skeet-table", "id"),
+    Input("skeet-filter-columns", "value"),
 )
-def load_skeet_table(_):
+def load_skeet_table(selected_columns):
     data = get_skeet_rounds()
     if not data:
         return html.P("No skeet rounds found.", className="text-muted")
+    if selected_columns:
+        columns = [col for col in COLUMNS if col["id"] in selected_columns]
+    else:
+        columns = COLUMNS
     df = pd.DataFrame(data)
     return DataTable(
-        columns=COLUMNS,
+        columns=columns,
         data=df.to_dict("records"),
         sort_action="native",
         filter_action="native",
