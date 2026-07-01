@@ -114,19 +114,6 @@ def get_shotgun_chokes():
         return []
 
 
-def get_trap_target_presentations():
-    try:
-        session = Session()
-        rows = session.execute(text(
-            "select id, target_presentation from trap_target_presentation order by target_presentation"
-        )).fetchall()
-        session.close()
-        return [{"label": row[1], "value": row[0]} for row in rows]
-    except Exception as e:
-        print(f"Error querying trap target presentations: {e}")
-        return []
-
-
 def get_ammo_cartridge_id(ammo_id):
     try:
         session = Session()
@@ -319,14 +306,14 @@ SKEET_STYLE_OPTIONS = [
     {"label": "American", "value": "American"},
 ]
 
-# Default reset values for end form fields (33 values, one per add_end output after alert/store/table)
+# Default reset values for end form fields (32 values, one per add_end output after alert/store/table)
 _RESET_END = (
     None, "ammo", None, None,     # model, ammo-type, ammo, cartridge
     None, "yd", None,             # quantity, dist-unit, distance
     None, None, None, None,       # target, shots-scored, pts-stab, support-hands
     None, None,                   # sight, stance
     False, "yd", None, None,         # is-trap, trap-dist-unit, trap-distance, trap-style
-    None, None, None, None, False,   # trap-num-break, trap-start-station, trap-choke, trap-target-presentation, trap-by-station
+    None, None, None, False,   # trap-num-break, trap-start-station, trap-choke, trap-by-station
     None, None, None, None, None, # station 1–5
     False, None, None, None, None, False,   # is-skeet, skeet-discipline, skeet-num-break, skeet-choke1, skeet-choke2, skeet-low-gun-start
 )
@@ -593,14 +580,6 @@ layout = dbc.Container(
                                     id="fe-trap-choke",
                                     options=get_shotgun_chokes(),
                                     placeholder="Select choke",
-                                ),
-                            ], md=5),
-                            dbc.Col([
-                                html.Label("Target Presentation (optional)"),
-                                dcc.Dropdown(
-                                    id="fe-trap-target-presentation",
-                                    options=get_trap_target_presentations(),
-                                    placeholder="Select presentation",
                                 ),
                             ], md=5),
                         ], className="mb-3"),
@@ -913,7 +892,6 @@ def toggle_stations(by_station):
     Output("fe-trap-num-break", "value"),
     Output("fe-trap-start-station", "value"),
     Output("fe-trap-choke", "value"),
-    Output("fe-trap-target-presentation", "value"),
     Output("fe-trap-by-station", "value"),
     Output("fe-station-1", "value"),
     Output("fe-station-2", "value"),
@@ -948,7 +926,6 @@ def toggle_stations(by_station):
     State("fe-trap-num-break", "value"),
     State("fe-trap-start-station", "value"),
     State("fe-trap-choke", "value"),
-    State("fe-trap-target-presentation", "value"),
     State("fe-trap-by-station", "value"),
     State("fe-station-1", "value"),
     State("fe-station-2", "value"),
@@ -971,7 +948,7 @@ def add_end(
     target_id, shots_scored, pts_stab, support_hands,
     sight_id, stance,
     is_trap, trap_dist_unit, trap_distance, trap_style,
-    trap_num_break, trap_start_station, trap_choke_id, trap_target_presentation_id, trap_by_station,
+    trap_num_break, trap_start_station, trap_choke_id, trap_by_station,
     s1, s2, s3, s4, s5,
     is_skeet, skeet_discipline, skeet_num_break, skeet_choke1, skeet_choke2, skeet_low_gun_start,
     ends_store,
@@ -1042,7 +1019,6 @@ def add_end(
                 num_break=int(trap_num_break) if trap_num_break is not None else None,
                 starting_station=int(trap_start_station) if trap_start_station is not None else None,
                 shotgun_choke_id=int(trap_choke_id) if trap_choke_id else None,
-                trap_target_presentation_id=int(trap_target_presentation_id) if trap_target_presentation_id else None,
             )
             postgres_session.add(trap_obj)
             postgres_session.flush()
