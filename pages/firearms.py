@@ -7,7 +7,10 @@ from sqlalchemy import text
 from datetime import datetime
 
 from models import Session, postgres_session
-from models.firearm import FirearmVisit, FirearmEnd, TrapRound, TrapShot, SkeetRound, FirearmRange
+from models.firearm import (
+    FirearmVisit, FirearmEnd, TrapRound, TrapShot,
+    DoubleTrapRound, DoubleTrapShot, SkeetRound, FirearmRange,
+)
 
 dash.register_page(__name__, path="/firearms")
 
@@ -303,10 +306,15 @@ TRAP_STYLE_OPTIONS = [
 
 SKEET_STYLE_OPTIONS = [
     {"label": "International", "value": "International"},
-    {"label": "American", "value": "American"},
+    {"label": "American (NSSA)", "value": "American"},
 ]
 
-# Default reset values for end form fields (32 values, one per add_end output after alert/store/table)
+DOUBLE_TRAP_STYLE_OPTIONS = [
+    {"label": "International", "value": "International"},
+    {"label": "American (ATA)", "value": "American"},
+]
+
+# Default reset values for end form fields (46 values, one per add_end output after alert/store/table)
 _RESET_END = (
     None, "ammo", None, None,     # model, ammo-type, ammo, cartridge
     None, "yd", None,             # quantity, dist-unit, distance
@@ -316,6 +324,9 @@ _RESET_END = (
     None, None, None, False,   # trap-num-break, trap-start-station, trap-choke, trap-by-station
     None, None, None, None, None, # station 1–5
     False, None, None, None, None, False,   # is-skeet, skeet-discipline, skeet-num-break, skeet-choke1, skeet-choke2, skeet-low-gun-start
+    False, "yd", None, None,         # is-double-trap, dt-dist-unit, dt-distance, dt-style
+    None, None, None, None, False,   # dt-num-break, dt-start-station, dt-choke1, dt-choke2, dt-by-station
+    None, None, None, None, None,    # dt-station 1–5
 )
 
 
@@ -687,6 +698,115 @@ layout = dbc.Container(
                     ]), className="bg-light"),
                 ),
 
+                # Double trap round toggle
+                dbc.Row(
+                    dbc.Col([
+                        html.Label("Is this a Double Trap Round?"),
+                        dbc.RadioItems(
+                            id="fe-is-double-trap",
+                            options=[
+                                {"label": " Yes", "value": True},
+                                {"label": " No", "value": False},
+                            ],
+                            value=False,
+                            inline=True,
+                        ),
+                    ], md=6),
+                    className="mb-2 mt-2",
+                ),
+
+                # Double trap round details (collapsible)
+                dbc.Collapse(
+                    id="fe-double-trap-collapse",
+                    is_open=False,
+                    children=dbc.Card(dbc.CardBody([
+                        html.H6("Double Trap Round Details"),
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("Distance Unit"),
+                                dbc.RadioItems(
+                                    id="fe-dt-dist-unit",
+                                    options=[
+                                        {"label": " yd", "value": "yd"},
+                                        {"label": " m", "value": "m"},
+                                    ],
+                                    value="yd",
+                                    inline=True,
+                                ),
+                            ], md=2),
+                            dbc.Col([
+                                html.Label("Distance (optional)"),
+                                dbc.Input(id="fe-dt-distance", type="number", min=0),
+                            ], md=2),
+                            dbc.Col([
+                                html.Label("Style"),
+                                dcc.Dropdown(
+                                    id="fe-dt-style",
+                                    options=DOUBLE_TRAP_STYLE_OPTIONS,
+                                    placeholder="Select style",
+                                ),
+                            ], md=3),
+                            dbc.Col([
+                                html.Label("Num Breaks (optional)"),
+                                dbc.Input(id="fe-dt-num-break", type="number", min=0),
+                            ], md=2),
+                            dbc.Col([
+                                html.Label("Starting Station (optional)"),
+                                dbc.Input(id="fe-dt-start-station", type="number", min=1, max=5),
+                            ], md=2),
+                        ], className="mb-3"),
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("Choke 1 (optional)"),
+                                dcc.Dropdown(
+                                    id="fe-dt-choke1",
+                                    options=get_shotgun_chokes(),
+                                    placeholder="Select choke",
+                                ),
+                            ], md=5),
+                            dbc.Col([
+                                html.Label("Choke 2 (optional)"),
+                                dcc.Dropdown(
+                                    id="fe-dt-choke2",
+                                    options=get_shotgun_chokes(),
+                                    placeholder="Select choke",
+                                ),
+                            ], md=5),
+                        ], className="mb-3"),
+                        dbc.Row(
+                            dbc.Col([
+                                html.Label("Breaks by station?"),
+                                dbc.RadioItems(
+                                    id="fe-dt-by-station",
+                                    options=[
+                                        {"label": " Yes", "value": True},
+                                        {"label": " No", "value": False},
+                                    ],
+                                    value=False,
+                                    inline=True,
+                                ),
+                            ], md=6),
+                            className="mb-2",
+                        ),
+                        dbc.Collapse(
+                            id="fe-dt-station-collapse",
+                            is_open=False,
+                            children=dbc.Row([
+                                dbc.Col([
+                                    html.Label(f"Station {i}"),
+                                    dbc.Input(
+                                        id=f"fe-dt-station-{i}",
+                                        type="number",
+                                        min=0,
+                                        placeholder="Breaks",
+                                    ),
+                                ], md=2)
+                                for i in range(1, 6)
+                            ]),
+                        ),
+                    ]), className="bg-light"),
+                ),
+
                 html.Hr(),
                 dbc.Row([
                     dbc.Col(
@@ -846,18 +966,26 @@ def toggle_ammo_cartridge(ammo_type):
 @callback(
     Output("fe-trap-collapse", "is_open"),
     Output("fe-skeet-collapse", "is_open"),
+    Output("fe-double-trap-collapse", "is_open"),
     Output("fe-is-trap", "value"),
     Output("fe-is-skeet", "value"),
+    Output("fe-is-double-trap", "value"),
     Input("fe-is-trap", "value"),
     Input("fe-is-skeet", "value"),
+    Input("fe-is-double-trap", "value"),
 )
-def toggle_trap_skeet(is_trap, is_skeet):
-    # An end cannot be both a trap round and a skeet round.
+def toggle_trap_skeet(is_trap, is_skeet, is_double_trap):
+    # An end can only be one of: trap, skeet, double trap.
     if ctx.triggered_id == "fe-is-trap" and is_trap:
-        is_skeet = False
+        is_skeet = is_double_trap = False
     elif ctx.triggered_id == "fe-is-skeet" and is_skeet:
-        is_trap = False
-    return bool(is_trap), bool(is_skeet), is_trap, is_skeet
+        is_trap = is_double_trap = False
+    elif ctx.triggered_id == "fe-is-double-trap" and is_double_trap:
+        is_trap = is_skeet = False
+    return (
+        bool(is_trap), bool(is_skeet), bool(is_double_trap),
+        is_trap, is_skeet, is_double_trap,
+    )
 
 
 @callback(
@@ -865,6 +993,14 @@ def toggle_trap_skeet(is_trap, is_skeet):
     Input("fe-trap-by-station", "value"),
 )
 def toggle_stations(by_station):
+    return bool(by_station)
+
+
+@callback(
+    Output("fe-dt-station-collapse", "is_open"),
+    Input("fe-dt-by-station", "value"),
+)
+def toggle_dt_stations(by_station):
     return bool(by_station)
 
 
@@ -904,6 +1040,20 @@ def toggle_stations(by_station):
     Output("fe-skeet-choke1", "value"),
     Output("fe-skeet-choke2", "value"),
     Output("fe-skeet-low-gun-start", "value"),
+    Output("fe-is-double-trap", "value", allow_duplicate=True),
+    Output("fe-dt-dist-unit", "value"),
+    Output("fe-dt-distance", "value"),
+    Output("fe-dt-style", "value"),
+    Output("fe-dt-num-break", "value"),
+    Output("fe-dt-start-station", "value"),
+    Output("fe-dt-choke1", "value"),
+    Output("fe-dt-choke2", "value"),
+    Output("fe-dt-by-station", "value"),
+    Output("fe-dt-station-1", "value"),
+    Output("fe-dt-station-2", "value"),
+    Output("fe-dt-station-3", "value"),
+    Output("fe-dt-station-4", "value"),
+    Output("fe-dt-station-5", "value"),
     Input("fe-add-btn", "n_clicks"),
     State("fv-visit-id-store", "data"),
     State("fe-model", "value"),
@@ -938,6 +1088,20 @@ def toggle_stations(by_station):
     State("fe-skeet-choke1", "value"),
     State("fe-skeet-choke2", "value"),
     State("fe-skeet-low-gun-start", "value"),
+    State("fe-is-double-trap", "value"),
+    State("fe-dt-dist-unit", "value"),
+    State("fe-dt-distance", "value"),
+    State("fe-dt-style", "value"),
+    State("fe-dt-num-break", "value"),
+    State("fe-dt-start-station", "value"),
+    State("fe-dt-choke1", "value"),
+    State("fe-dt-choke2", "value"),
+    State("fe-dt-by-station", "value"),
+    State("fe-dt-station-1", "value"),
+    State("fe-dt-station-2", "value"),
+    State("fe-dt-station-3", "value"),
+    State("fe-dt-station-4", "value"),
+    State("fe-dt-station-5", "value"),
     State("fe-ends-store", "data"),
     prevent_initial_call=True,
 )
@@ -951,6 +1115,9 @@ def add_end(
     trap_num_break, trap_start_station, trap_choke_id, trap_by_station,
     s1, s2, s3, s4, s5,
     is_skeet, skeet_discipline, skeet_num_break, skeet_choke1, skeet_choke2, skeet_low_gun_start,
+    is_double_trap, dt_dist_unit, dt_distance, dt_style,
+    dt_num_break, dt_start_station, dt_choke1, dt_choke2, dt_by_station,
+    dt1, dt2, dt3, dt4, dt5,
     ends_store,
 ):
     ends_store = ends_store or []
@@ -966,8 +1133,8 @@ def add_end(
         return warn("No visit created yet.")
     if not model_id:
         return warn("Firearm model is required.")
-    if is_trap and is_skeet:
-        return warn("An end cannot be both a trap round and a skeet round.")
+    if sum(bool(x) for x in (is_trap, is_skeet, is_double_trap)) > 1:
+        return warn("An end can only be one of: trap, skeet, double trap.")
     if is_skeet and not skeet_discipline:
         return warn("Skeet discipline is required.")
 
@@ -1044,6 +1211,38 @@ def add_end(
             postgres_session.add(skeet_obj)
             postgres_session.flush()
 
+        if is_double_trap:
+            dt_dist_yard = dt_dist_m = None
+            if dt_distance is not None:
+                if dt_dist_unit == "yd":
+                    dt_dist_yard = float(dt_distance)
+                    dt_dist_m = dt_dist_yard * 0.9144
+                else:
+                    dt_dist_m = float(dt_distance)
+                    dt_dist_yard = dt_dist_m * 1.09361
+
+            dt_obj = DoubleTrapRound(
+                firearm_end_id=end_obj.id,
+                distance_yard=dt_dist_yard,
+                distance_m=dt_dist_m,
+                discipline=dt_style or None,
+                num_break=int(dt_num_break) if dt_num_break is not None else None,
+                starting_station=int(dt_start_station) if dt_start_station is not None else None,
+                shotgun_choke_id1=int(dt_choke1) if dt_choke1 else None,
+                shotgun_choke_id2=int(dt_choke2) if dt_choke2 else None,
+            )
+            postgres_session.add(dt_obj)
+            postgres_session.flush()
+
+            if dt_by_station:
+                for station_num, breaks in enumerate([dt1, dt2, dt3, dt4, dt5], start=1):
+                    if breaks is not None:
+                        postgres_session.add(DoubleTrapShot(
+                            double_trap_round_id=dt_obj.id,
+                            station=station_num,
+                            num_break=int(breaks),
+                        ))
+
         postgres_session.commit()
 
         new_row = {
@@ -1052,6 +1251,7 @@ def add_end(
             "Dist (m)": round(distance_m, 1) if distance_m is not None else "",
             "Trap": "Yes" if is_trap else "No",
             "Skeet": "Yes" if is_skeet else "No",
+            "Double Trap": "Yes" if is_double_trap else "No",
         }
         new_store = ends_store + [new_row]
         return (
