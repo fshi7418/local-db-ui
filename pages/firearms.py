@@ -221,7 +221,7 @@ def get_shots_by_ammunition():
     try:
         session = Session()
         query = text("""
-            select a.name as ammunition, max(m.name) as manufacturer, max(c.name) as cartridge, a.casing, a.tip, a.muzzle_velocity_fps, a.weight_grain, sum(e.quantity) as num_shots
+            select a.name as ammunition, max(m.name) as manufacturer, max(c.name) as cartridge, a.casing, a.tip, a.muzzle_velocity_fps, a.weight_grain, max(c.shot_size) as shot_size, max(c.shot_load_oz) as shot_load_oz, max(c.shot_load_g) as shot_load_g, sum(e.quantity) as num_shots
             from firearm_end e, firearm_ammunition a, firearm_cartridge c, firearm_manufacturer m
             where e.firearm_ammunition_id = a.id
             and a.firearm_cartridge_id = c.id
@@ -240,13 +240,23 @@ def get_shots_by_ammunition():
                 "Tip": r[4],
                 "Muzzle Velocity (fps)": r[5],
                 "Weight (grain)": r[6],
-                "Num Shots": int(r[7]) if r[7] else 0,
+                "Shot Size": r[7],
+                "Load (oz)": r[8],
+                "Load (g)": r[9],
+                "Num Shots": int(r[10]) if r[10] else 0,
             }
             for r in result
         ]
     except Exception as e:
         print(f"Error querying shots by ammunition: {e}")
         return []
+
+
+SHOTS_BY_AMMUNITION_COLUMNS = [
+    "Ammunition", "Manufacturer", "Cartridge", "Casing", "Tip",
+    "Muzzle Velocity (fps)", "Weight (grain)", "Shot Size", "Load (oz)",
+    "Load (g)", "Num Shots",
+]
 
 
 def get_shots_by_cartridge():
@@ -853,8 +863,8 @@ layout = dbc.Container(
         dbc.Row(
             dbc.Col(
                 dbc.Card(dbc.CardBody([
-                    html.H4("Shots by Cartridge", className="card-title"),
-                    html.Div(id="shots-by-cartridge-table"),
+                    html.H4("Ammunition", className="card-title"),
+                    html.Div(id="ammunition-table"),
                 ])),
                 width=12,
             ),
@@ -865,6 +875,15 @@ layout = dbc.Container(
             dbc.Col(
                 dbc.Card(dbc.CardBody([
                     html.H4("Shots by Ammunition", className="card-title"),
+                    html.Label("Columns to Display"),
+                    dcc.Dropdown(
+                        id="shots-by-ammunition-columns",
+                        options=[{"label": col, "value": col} for col in SHOTS_BY_AMMUNITION_COLUMNS],
+                        value=SHOTS_BY_AMMUNITION_COLUMNS,
+                        multi=True,
+                        placeholder="Select columns",
+                        className="mb-3",
+                    ),
                     html.Div(id="shots-by-ammunition-table"),
                 ])),
                 width=12,
@@ -875,8 +894,8 @@ layout = dbc.Container(
         dbc.Row(
             dbc.Col(
                 dbc.Card(dbc.CardBody([
-                    html.H4("Ammunition", className="card-title"),
-                    html.Div(id="ammunition-table"),
+                    html.H4("Shots by Cartridge", className="card-title"),
+                    html.Div(id="shots-by-cartridge-table"),
                 ])),
                 width=12,
             ),
@@ -1319,13 +1338,15 @@ def update_shots_by_cartridge(_):
 
 @dash.callback(
     dash.Output("shots-by-ammunition-table", "children"),
-    dash.Input("shots-by-ammunition-table", "id"),
+    dash.Input("shots-by-ammunition-columns", "value"),
 )
-def update_shots_by_ammunition(_):
+def update_shots_by_ammunition(selected_columns):
     data = get_shots_by_ammunition()
     if not data:
         return html.P("No data available")
-    return dbc.Table.from_dataframe(pd.DataFrame(data), striped=True, bordered=True, hover=True)
+    df = pd.DataFrame(data)
+    display_cols = [c for c in df.columns if not selected_columns or c in selected_columns]
+    return dbc.Table.from_dataframe(df[display_cols], striped=True, bordered=True, hover=True)
 
 
 @dash.callback(
