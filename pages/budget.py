@@ -73,6 +73,20 @@ layout = dbc.Container(
         ),
         dbc.Row(
             dbc.Col(
+                dbc.Spinner(html.Div(id="budget-summary")),
+                width=12,
+            ),
+            className="mb-4",
+        ),
+        dbc.Row(
+            dbc.Col(
+                dbc.Spinner(html.Div(id="budget-category")),
+                width=12,
+            ),
+            className="mb-4",
+        ),
+        dbc.Row(
+            dbc.Col(
                 dbc.Spinner(html.Div(id="budget-table")),
                 width=12,
             ),
@@ -83,16 +97,68 @@ layout = dbc.Container(
 
 
 @callback(
+    Output("budget-summary", "children"),
+    Output("budget-category", "children"),
     Output("budget-table", "children"),
     Input("budget-year", "value"),
 )
 def update_budget_table(year):
     if year is None:
-        return html.P("Select a year.", className="text-muted")
+        msg = html.P("Select a year.", className="text-muted")
+        return msg, None, None
 
     df = get_budget_data(year)
     if df.empty:
-        return html.P("No budget data found for this year.", className="text-muted")
+        msg = html.P("No budget data found for this year.", className="text-muted")
+        return msg, None, None
+
+    summary_df = (
+        df.groupby("income_expense", as_index=False)[["budget_total", "amount_so_far"]]
+        .sum()
+        .rename(columns={"income_expense": "type"})
+        .sort_values("type")
+    )
+
+    summary_columns = [
+        {"name": "Type", "id": "type", "type": "text"},
+        {"name": "Budget Total", "id": "budget_total", "type": "numeric", "format": {"specifier": "$.2f"}},
+        {"name": "Amount So Far", "id": "amount_so_far", "type": "numeric", "format": {"specifier": "$.2f"}},
+    ]
+
+    summary_table = DataTable(
+        columns=summary_columns,
+        data=summary_df.to_dict("records"),
+        style_cell={"textAlign": "left", "padding": "10px"},
+        style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
+        style_table={"width": "auto"},
+    )
+
+    category_df = (
+        df.groupby(["income_expense", "category"], as_index=False)[["budget_total", "amount_so_far"]]
+        .sum()
+        .rename(columns={"income_expense": "type"})
+        .sort_values(["type", "category"])
+    )
+
+    category_columns = [
+        {"name": "Type", "id": "type", "type": "text"},
+        {"name": "Category", "id": "category", "type": "text"},
+        {"name": "Budget Total", "id": "budget_total", "type": "numeric", "format": {"specifier": "$.2f"}},
+        {"name": "Amount So Far", "id": "amount_so_far", "type": "numeric", "format": {"specifier": "$.2f"}},
+    ]
+
+    category_table = DataTable(
+        columns=category_columns,
+        data=category_df.to_dict("records"),
+        sort_action="native",
+        filter_action="native",
+        style_cell={"textAlign": "left", "padding": "10px"},
+        style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
+        style_data_conditional=[
+            {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"},
+        ],
+        style_table={"width": "auto"},
+    )
 
     df["budget_start_date"] = pd.to_datetime(df["budget_start_date"]).dt.strftime("%Y-%m-%d")
     df["budget_end_date"] = pd.to_datetime(df["budget_end_date"]).dt.strftime("%Y-%m-%d")
@@ -107,13 +173,20 @@ def update_budget_table(year):
         {"name": "Amount So Far", "id": "amount_so_far", "type": "numeric", "format": {"specifier": "$.2f"}},
     ]
 
-    return DataTable(
+    table = DataTable(
         columns=columns,
         data=df.to_dict("records"),
         sort_action="native",
+        filter_action="native",
         style_cell={"textAlign": "left", "padding": "10px"},
         style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
         style_data_conditional=[
             {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"},
         ],
+    )
+
+    return (
+        html.Div([html.H5("Summary by Type"), summary_table]),
+        html.Div([html.H5("Summary by Type + Category"), category_table]),
+        table,
     )
