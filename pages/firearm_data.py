@@ -68,15 +68,20 @@ def recent_manufacturers():
 
 
 def recent_cartridges():
-    return _recent(
-        "select id, name, strike_type, shot_size, shot_material "
-        "from firearm_cartridge order by id desc limit 10"
-    )
+    return _recent("""
+        select id, name, strike_type, shot_size, shot_material,
+               shot_load_oz, shot_load_g, length_mm_case, length_in_case,
+               diameter_in_base, diameter_mm_base, diameter_mm_bullet,
+               diameter_in_bullet, diameter_in_land, diameter_mm_land
+        from firearm_cartridge order by id desc limit 10
+    """)
 
 
 def recent_ammunition():
     return _recent("""
-        select a.id, a.name, m.name as manufacturer, c.name as cartridge,
+        select a.id, a.name, m.name as manufacturer,
+               c.id as cartridge_id, c.name as cartridge,
+               c.shot_size, c.shot_load_oz, c.shot_load_g, c.shot_material,
                a.casing, a.tip, a.muzzle_velocity_fps, a.weight_grain
         from firearm_ammunition a
         left join firearm_manufacturer m on a.firearm_manufacturer_id = m.id
@@ -176,10 +181,10 @@ cartridge_tab = dbc.Card(dbc.CardBody([
         _text_col("Shot Material", "ct-shot-material", md=3),
     ], className="mb-3"),
     dbc.Row([
-        _text_col("Base Ø (in)", "ct-dia-in-base", md=2, type_="number"),
-        _text_col("Base Ø (mm)", "ct-dia-mm-base", md=2, type_="number"),
-        _text_col("Bullet Ø (in)", "ct-dia-in-bullet", md=2, type_="number"),
-        _text_col("Bullet Ø (mm)", "ct-dia-mm-bullet", md=2, type_="number"),
+        _text_col("Base Diameter (in)", "ct-dia-in-base", md=2, type_="number"),
+        _text_col("Base Diameter (mm)", "ct-dia-mm-base", md=2, type_="number"),
+        _text_col("Bullet Diameter (in)", "ct-dia-in-bullet", md=2, type_="number"),
+        _text_col("Bullet Diameter (mm)", "ct-dia-mm-bullet", md=2, type_="number"),
     ], className="mb-3"),
     dbc.Row([
         _text_col("Shot Load (oz)", "ct-load-oz", md=3, type_="number"),

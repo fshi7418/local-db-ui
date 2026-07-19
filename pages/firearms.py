@@ -194,6 +194,32 @@ def get_ammunition_data():
         return []
 
 
+def get_cartridges_data():
+    try:
+        session = Session()
+        rows = session.execute(text("""
+            select
+                id, name, strike_type, shot_size, shot_material, shot_load_oz, shot_load_g
+            from firearm_cartridge
+        """)).fetchall()
+        session.close()
+        return [
+            {
+                "ID": r[0],
+                "Name": r[1],
+                "Strike Type": r[2],
+                "Shot Size": r[3],
+                "Shot Material": r[4],
+                "Load (oz)": r[5],
+                "Load (g)": r[6],
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        print(f"Error querying cartridges data: {e}")
+        return []
+
+
 # ── Stats helpers ───────────────────────────────────────────────────────────────
 
 def get_shots_by_model():
@@ -346,11 +372,38 @@ layout = dbc.Container(
     [
         dbc.Row(dbc.Col(html.H2("Firearms"), width=12), className="mb-4"),
 
+        # ── Table of contents ─────────────────────────────────────────────────────
+        dbc.Row(
+            dbc.Col(
+                dbc.Card(dbc.CardBody([
+                    html.H5("On this page", className="card-title"),
+                    html.Ul(
+                        [
+                            html.Li(html.A(label, href=f"#{anchor}", className="text-decoration-none"))
+                            for label, anchor in [
+                                ("Add Firearm Visit", "section-add-visit"),
+                                ("Add End", "section-add-end"),
+                                ("Visits", "section-visits"),
+                                ("Shots by Model", "section-shots-by-model"),
+                                ("Ammunition", "section-ammunition"),
+                                ("Shots by Ammunition", "section-shots-by-ammunition"),
+                                ("Cartridges", "section-cartridges"),
+                                ("Shots by Cartridge", "section-shots-by-cartridge"),
+                            ]
+                        ],
+                        className="mb-0",
+                    ),
+                ])),
+                width=12,
+            ),
+            className="mb-4",
+        ),
+
         # ── Visit form ────────────────────────────────────────────────────────────
         dbc.Row(
             dbc.Col(
                 dbc.Card(dbc.CardBody([
-                    html.H4("Add Firearm Visit", className="card-title"),
+                    html.H4("Add Firearm Visit", className="card-title", id="section-add-visit"),
 
                     dbc.Row([
                         dbc.Col([
@@ -417,7 +470,7 @@ layout = dbc.Container(
             id="fe-collapse",
             is_open=False,
             children=dbc.Card(dbc.CardBody([
-                html.H4("Add End", className="card-title"),
+                html.H4("Add End", className="card-title", id="section-add-end"),
                 html.Div(id="fv-visit-badge"),
                 html.Hr(),
 
@@ -837,7 +890,7 @@ layout = dbc.Container(
         dbc.Row(
             dbc.Col(
                 dbc.Card(dbc.CardBody([
-                    html.H4("Visits", className="card-title"),
+                    html.H4("Visits", className="card-title", id="section-visits"),
                     html.Div(id="visits-table"),
                 ])),
                 width=12,
@@ -852,7 +905,7 @@ layout = dbc.Container(
         dbc.Row(
             dbc.Col(
                 dbc.Card(dbc.CardBody([
-                    html.H4("Shots by Model", className="card-title"),
+                    html.H4("Shots by Model", className="card-title", id="section-shots-by-model"),
                     html.Div(id="shots-by-model-table"),
                 ])),
                 width=12,
@@ -863,7 +916,7 @@ layout = dbc.Container(
         dbc.Row(
             dbc.Col(
                 dbc.Card(dbc.CardBody([
-                    html.H4("Ammunition", className="card-title"),
+                    html.H4("Ammunition", className="card-title", id="section-ammunition"),
                     html.Div(id="ammunition-table"),
                 ])),
                 width=12,
@@ -874,7 +927,7 @@ layout = dbc.Container(
         dbc.Row(
             dbc.Col(
                 dbc.Card(dbc.CardBody([
-                    html.H4("Shots by Ammunition", className="card-title"),
+                    html.H4("Shots by Ammunition", className="card-title", id="section-shots-by-ammunition"),
                     html.Label("Columns to Display"),
                     dcc.Dropdown(
                         id="shots-by-ammunition-columns",
@@ -894,7 +947,18 @@ layout = dbc.Container(
         dbc.Row(
             dbc.Col(
                 dbc.Card(dbc.CardBody([
-                    html.H4("Shots by Cartridge", className="card-title"),
+                    html.H4("Cartridges", className="card-title", id="section-cartridges"),
+                    html.Div(id="cartridges-table"),
+                ])),
+                width=12,
+            ),
+            className="mb-4",
+        ),
+
+        dbc.Row(
+            dbc.Col(
+                dbc.Card(dbc.CardBody([
+                    html.H4("Shots by Cartridge", className="card-title", id="section-shots-by-cartridge"),
                     html.Div(id="shots-by-cartridge-table"),
                 ])),
                 width=12,
@@ -1347,6 +1411,30 @@ def update_shots_by_ammunition(selected_columns):
     df = pd.DataFrame(data)
     display_cols = [c for c in df.columns if not selected_columns or c in selected_columns]
     return dbc.Table.from_dataframe(df[display_cols], striped=True, bordered=True, hover=True)
+
+
+@dash.callback(
+    dash.Output("cartridges-table", "children"),
+    dash.Input("cartridges-table", "id"),
+)
+def update_cartridges_table(_):
+    data = get_cartridges_data()
+    if not data:
+        return html.P("No data available")
+    df = pd.DataFrame(data)
+    return DataTable(
+        columns=[{"name": c, "id": c} for c in df.columns],
+        data=df.to_dict("records"),
+        sort_action="native",
+        filter_action="native",
+        page_action="native",
+        page_size=50,
+        style_cell={"textAlign": "left", "padding": "10px"},
+        style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
+        style_data_conditional=[
+            {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"}
+        ],
+    )
 
 
 @dash.callback(
