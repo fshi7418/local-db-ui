@@ -168,7 +168,8 @@ def get_ammunition_data():
         rows = session.execute(text("""
             select
                 a.id as ammunition_id, a.name as ammunition_name, mfr.name as manufacturer,
-                c.id as cartridge_id, c.name as cartridge_name, c.shot_size, c.shot_load_oz, c.shot_load_g, c.shot_material
+                c.id as cartridge_id, c.name as cartridge_name, c.shot_size, c.shot_load_oz, c.shot_load_g, c.shot_material,
+                a.muzzle_velocity_fps, a.weight_grain
             from firearm_ammunition a
             left join firearm_manufacturer mfr on a.firearm_manufacturer_id = mfr.id
             left join firearm_cartridge c on a.firearm_cartridge_id = c.id
@@ -186,6 +187,8 @@ def get_ammunition_data():
                 "Load (oz)": r[6],
                 "Load (g)": r[7],
                 "Shot Material": r[8],
+                "Muzzle Velocity (fps)": r[9],
+                "Weight (grain)": r[10],
             }
             for r in rows
         ]
@@ -199,7 +202,9 @@ def get_cartridges_data():
         session = Session()
         rows = session.execute(text("""
             select
-                id, name, strike_type, shot_size, shot_material, shot_load_oz, shot_load_g
+                id, name, strike_type, shot_size, shot_material, shot_load_oz, shot_load_g,
+                diameter_in_base, diameter_mm_base, diameter_in_bullet, diameter_mm_bullet,
+                length_in_case, length_mm_case
             from firearm_cartridge
         """)).fetchall()
         session.close()
@@ -212,6 +217,12 @@ def get_cartridges_data():
                 "Shot Material": r[4],
                 "Load (oz)": r[5],
                 "Load (g)": r[6],
+                "Base Dia (in)": r[7],
+                "Base Dia (mm)": r[8],
+                "Bullet Dia (in)": r[9],
+                "Bullet Dia (mm)": r[10],
+                "Case Length (in)": r[11],
+                "Case Length (mm)": r[12],
             }
             for r in rows
         ]
@@ -282,6 +293,22 @@ SHOTS_BY_AMMUNITION_COLUMNS = [
     "Ammunition", "Manufacturer", "Cartridge", "Casing", "Tip",
     "Muzzle Velocity (fps)", "Weight (grain)", "Shot Size", "Load (oz)",
     "Load (g)", "Num Shots",
+]
+
+CARTRIDGE_COLUMNS = [
+    "ID", "Name", "Strike Type", "Shot Size", "Shot Material",
+    "Load (oz)", "Load (g)", "Base Dia (in)", "Base Dia (mm)",
+    "Bullet Dia (in)", "Bullet Dia (mm)", "Case Length (in)", "Case Length (mm)",
+]
+
+SHOTS_BY_CARTRIDGE_COLUMNS = [
+    "Cartridge", "Shot Size", "Num Shots", "Load (oz)", "Load (g)",
+]
+
+AMMUNITION_COLUMNS = [
+    "ID", "Ammunition", "Manufacturer", "Cartridge ID", "Cartridge",
+    "Shot Size", "Load (oz)", "Load (g)", "Shot Material",
+    "Muzzle Velocity (fps)", "Weight (grain)",
 ]
 
 
@@ -917,6 +944,15 @@ layout = dbc.Container(
             dbc.Col(
                 dbc.Card(dbc.CardBody([
                     html.H4("Ammunition", className="card-title", id="section-ammunition"),
+                    html.Label("Columns to Display"),
+                    dcc.Dropdown(
+                        id="ammunition-columns",
+                        options=[{"label": col, "value": col} for col in AMMUNITION_COLUMNS],
+                        value=AMMUNITION_COLUMNS,
+                        multi=True,
+                        placeholder="Select columns",
+                        className="mb-3",
+                    ),
                     html.Div(id="ammunition-table"),
                 ])),
                 width=12,
@@ -948,6 +984,15 @@ layout = dbc.Container(
             dbc.Col(
                 dbc.Card(dbc.CardBody([
                     html.H4("Cartridges", className="card-title", id="section-cartridges"),
+                    html.Label("Columns to Display"),
+                    dcc.Dropdown(
+                        id="cartridges-columns",
+                        options=[{"label": col, "value": col} for col in CARTRIDGE_COLUMNS],
+                        value=CARTRIDGE_COLUMNS,
+                        multi=True,
+                        placeholder="Select columns",
+                        className="mb-3",
+                    ),
                     html.Div(id="cartridges-table"),
                 ])),
                 width=12,
@@ -959,6 +1004,15 @@ layout = dbc.Container(
             dbc.Col(
                 dbc.Card(dbc.CardBody([
                     html.H4("Shots by Cartridge", className="card-title", id="section-shots-by-cartridge"),
+                    html.Label("Columns to Display"),
+                    dcc.Dropdown(
+                        id="shots-by-cartridge-columns",
+                        options=[{"label": col, "value": col} for col in SHOTS_BY_CARTRIDGE_COLUMNS],
+                        value=SHOTS_BY_CARTRIDGE_COLUMNS,
+                        multi=True,
+                        placeholder="Select columns",
+                        className="mb-3",
+                    ),
                     html.Div(id="shots-by-cartridge-table"),
                 ])),
                 width=12,
@@ -1391,13 +1445,15 @@ def update_shots_by_model(_):
 
 @dash.callback(
     dash.Output("shots-by-cartridge-table", "children"),
-    dash.Input("shots-by-cartridge-table", "id"),
+    dash.Input("shots-by-cartridge-columns", "value"),
 )
-def update_shots_by_cartridge(_):
+def update_shots_by_cartridge(selected_columns):
     data = get_shots_by_cartridge()
     if not data:
         return html.P("No data available")
-    return dbc.Table.from_dataframe(pd.DataFrame(data), striped=True, bordered=True, hover=True)
+    df = pd.DataFrame(data)
+    display_cols = [c for c in df.columns if not selected_columns or c in selected_columns]
+    return dbc.Table.from_dataframe(df[display_cols], striped=True, bordered=True, hover=True)
 
 
 @dash.callback(
@@ -1415,13 +1471,15 @@ def update_shots_by_ammunition(selected_columns):
 
 @dash.callback(
     dash.Output("cartridges-table", "children"),
-    dash.Input("cartridges-table", "id"),
+    dash.Input("cartridges-columns", "value"),
 )
-def update_cartridges_table(_):
+def update_cartridges_table(selected_columns):
     data = get_cartridges_data()
     if not data:
         return html.P("No data available")
     df = pd.DataFrame(data)
+    display_cols = [c for c in df.columns if not selected_columns or c in selected_columns]
+    df = df[display_cols]
     return DataTable(
         columns=[{"name": c, "id": c} for c in df.columns],
         data=df.to_dict("records"),
@@ -1439,13 +1497,15 @@ def update_cartridges_table(_):
 
 @dash.callback(
     dash.Output("ammunition-table", "children"),
-    dash.Input("ammunition-table", "id"),
+    dash.Input("ammunition-columns", "value"),
 )
-def update_ammunition_table(_):
+def update_ammunition_table(selected_columns):
     data = get_ammunition_data()
     if not data:
         return html.P("No data available")
     df = pd.DataFrame(data)
+    display_cols = [c for c in df.columns if not selected_columns or c in selected_columns]
+    df = df[display_cols]
     return DataTable(
         columns=[{"name": c, "id": c} for c in df.columns],
         data=df.to_dict("records"),
