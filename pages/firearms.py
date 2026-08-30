@@ -377,14 +377,14 @@ DOUBLE_TRAP_STYLE_OPTIONS = [
     {"label": "American (ATA)", "value": "American"},
 ]
 
-# Default reset values for end form fields (46 values, one per add_end output after alert/store/table)
+# Default reset values for end form fields (47 values, one per add_end output after alert/store/table)
 _RESET_END = (
     None, "ammo", None, None,     # model, ammo-type, ammo, cartridge
     None, "yd", None,             # quantity, dist-unit, distance
     None, None, None, None,       # target, shots-scored, pts-stab, support-hands
     None, None,                   # sight, stance
     False, "yd", None, None,         # is-trap, trap-dist-unit, trap-distance, trap-style
-    None, None, None, False,   # trap-num-break, trap-start-station, trap-choke, trap-by-station
+    None, None, None, None, False,   # trap-num-break, trap-start-station, trap-choke1, trap-choke2, trap-by-station
     None, None, None, None, None, # station 1–5
     False, None, None, None, None, False,   # is-skeet, skeet-discipline, skeet-num-break, skeet-choke1, skeet-choke2, skeet-low-gun-start
     False, "yd", None, None,         # is-double-trap, dt-dist-unit, dt-distance, dt-style
@@ -676,9 +676,17 @@ layout = dbc.Container(
                         ], className="mb-3"),
                         dbc.Row([
                             dbc.Col([
-                                html.Label("Choke (optional)"),
+                                html.Label("Choke 1 (optional)"),
                                 dcc.Dropdown(
-                                    id="fe-trap-choke",
+                                    id="fe-trap-choke1",
+                                    options=get_shotgun_chokes(),
+                                    placeholder="Select choke",
+                                ),
+                            ], md=5),
+                            dbc.Col([
+                                html.Label("Choke 2 (optional)"),
+                                dcc.Dropdown(
+                                    id="fe-trap-choke2",
                                     options=get_shotgun_chokes(),
                                     placeholder="Select choke",
                                 ),
@@ -1164,7 +1172,8 @@ def toggle_dt_stations(by_station):
     Output("fe-trap-style", "value"),
     Output("fe-trap-num-break", "value"),
     Output("fe-trap-start-station", "value"),
-    Output("fe-trap-choke", "value"),
+    Output("fe-trap-choke1", "value"),
+    Output("fe-trap-choke2", "value"),
     Output("fe-trap-by-station", "value"),
     Output("fe-station-1", "value"),
     Output("fe-station-2", "value"),
@@ -1212,7 +1221,8 @@ def toggle_dt_stations(by_station):
     State("fe-trap-style", "value"),
     State("fe-trap-num-break", "value"),
     State("fe-trap-start-station", "value"),
-    State("fe-trap-choke", "value"),
+    State("fe-trap-choke1", "value"),
+    State("fe-trap-choke2", "value"),
     State("fe-trap-by-station", "value"),
     State("fe-station-1", "value"),
     State("fe-station-2", "value"),
@@ -1249,7 +1259,7 @@ def add_end(
     target_id, shots_scored, pts_stab, support_hands,
     sight_id, stance,
     is_trap, trap_dist_unit, trap_distance, trap_style,
-    trap_num_break, trap_start_station, trap_choke_id, trap_by_station,
+    trap_num_break, trap_start_station, trap_choke1, trap_choke2, trap_by_station,
     s1, s2, s3, s4, s5,
     is_skeet, skeet_discipline, skeet_num_break, skeet_choke1, skeet_choke2, skeet_low_gun_start,
     is_double_trap, dt_dist_unit, dt_distance, dt_style,
@@ -1322,7 +1332,8 @@ def add_end(
                 discipline=trap_style or None,
                 num_break=int(trap_num_break) if trap_num_break is not None else None,
                 starting_station=int(trap_start_station) if trap_start_station is not None else None,
-                shotgun_choke_id=int(trap_choke_id) if trap_choke_id else None,
+                shotgun_choke_id1=int(trap_choke1) if trap_choke1 else None,
+                shotgun_choke_id2=int(trap_choke2) if trap_choke2 else None,
             )
             postgres_session.add(trap_obj)
             postgres_session.flush()

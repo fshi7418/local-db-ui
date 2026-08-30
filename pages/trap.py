@@ -17,17 +17,21 @@ def get_trap_rounds(discipline=None):
             select
                 t.id, v.visit_date, e.id as end_id, t.discipline, m."name" as gun,
                 a."name" as ammunition, car.name as cartridge, car.shot_size as shot,
-                c_ma."name" as choke_manufacturer, c."name" as choke,
-                c.constriction, c.diametre_in, t.num_break,
-                t.distance_yard, t.distance_m
+                c1_ma."name" as choke_manufacturer1, c1."name" as choke1,
+                c1.constriction as constriction1, c1.diametre_in as diametre_in1,
+                c2_ma."name" as choke_manufacturer2, c2."name" as choke2,
+                c2.constriction as constriction2, c2.diametre_in as diametre_in2,
+                t.num_break, t.distance_yard, t.distance_m
             from firearm_visit v
             join firearm_end e on v.id = e.firearm_visit_id
             join firearm_model m on e.firearm_model_id = m.id
             join firearm_ammunition a on e.firearm_ammunition_id = a.id
             join firearm_cartridge car on a.firearm_cartridge_id = car.id
             join trap_round t on e.id = t.firearm_end_id
-            left join shotgun_choke c on t.shotgun_choke_id = c.id
-            left join firearm_manufacturer c_ma on c.firearm_manufacturer_id = c_ma.id
+            left join shotgun_choke c1 on t.shotgun_choke_id1 = c1.id
+            left join firearm_manufacturer c1_ma on c1.firearm_manufacturer_id = c1_ma.id
+            left join shotgun_choke c2 on t.shotgun_choke_id2 = c2.id
+            left join firearm_manufacturer c2_ma on c2.firearm_manufacturer_id = c2_ma.id
             order by visit_date desc, e.id desc
         """)
         result = session.execute(query).fetchall()
@@ -42,13 +46,16 @@ def get_trap_rounds(discipline=None):
                 "Visit Date": row[1].strftime("%Y-%m-%d") if row[1] else None,
                 "End ID": row[2],
                 "Discipline": row[3],
-                "Dist (yd)": row[13],
-                "Dist (m)": row[14],
-                "Breaks": row[12],
+                "Dist (yd)": row[17],
+                "Dist (m)": row[18],
+                "Breaks": row[16],
                 "Gun": row[4],
-                "Choke": row[9],
-                "Constriction": row[10],
-                "Choke Mfr": row[8],
+                "Choke 1": row[9],
+                "Constriction 1": row[10],
+                "Choke Mfr 1": row[8],
+                "Choke 2": row[13],
+                "Constriction 2": row[14],
+                "Choke Mfr 2": row[12],
                 "Ammunition": row[5],
                 "Cartridge": row[6],
                 "Shot": row[7],
@@ -79,9 +86,12 @@ COLUMNS = [
     {"name": "Dist (m)",              "id": "Dist (m)",              "type": "numeric"},
     {"name": "Breaks",                "id": "Breaks",                "type": "numeric"},
     {"name": "Gun",                   "id": "Gun",                   "type": "text"},
-    {"name": "Choke",                 "id": "Choke",                 "type": "text"},
-    {"name": "Constriction",          "id": "Constriction",          "type": "text"},
-    {"name": "Choke Mfr",            "id": "Choke Mfr",            "type": "text"},
+    {"name": "Choke 1",               "id": "Choke 1",               "type": "text"},
+    {"name": "Constriction 1",        "id": "Constriction 1",        "type": "text"},
+    {"name": "Choke Mfr 1",           "id": "Choke Mfr 1",           "type": "text"},
+    {"name": "Choke 2",               "id": "Choke 2",               "type": "text"},
+    {"name": "Constriction 2",        "id": "Constriction 2",        "type": "text"},
+    {"name": "Choke Mfr 2",           "id": "Choke Mfr 2",           "type": "text"},
     {"name": "Ammunition",            "id": "Ammunition",            "type": "text"},
     {"name": "Cartridge",             "id": "Cartridge",             "type": "text"},
     {"name": "Shot",                  "id": "Shot",                  "type": "text"},
