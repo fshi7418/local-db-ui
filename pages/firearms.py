@@ -377,19 +377,19 @@ DOUBLE_TRAP_STYLE_OPTIONS = [
     {"label": "American (ATA)", "value": "American"},
 ]
 
-# Default reset values for end form fields (47 values, one per add_end output after alert/store/table)
+# Default reset values for end form fields (51 values, one per add_end output after alert/store/table)
 _RESET_END = (
     None, "ammo", None, None,     # model, ammo-type, ammo, cartridge
     None, "yd", None,             # quantity, dist-unit, distance
     None, None, None, None,       # target, shots-scored, pts-stab, support-hands
-    None, None,                   # sight, stance
+    None, None, None,             # sight, stance, remarks
     False, "yd", None, None,         # is-trap, trap-dist-unit, trap-distance, trap-style
     None, None, None, None, False,   # trap-num-break, trap-start-station, trap-choke1, trap-choke2, trap-by-station
-    None, None, None, None, None, # station 1–5
-    False, None, None, None, None, False,   # is-skeet, skeet-discipline, skeet-num-break, skeet-choke1, skeet-choke2, skeet-low-gun-start
+    None, None, None, None, None, None, # station 1–5, trap-remarks
+    False, None, None, None, None, False, None,   # is-skeet, skeet-discipline, skeet-num-break, skeet-choke1, skeet-choke2, skeet-low-gun-start, skeet-remarks
     False, "yd", None, None,         # is-double-trap, dt-dist-unit, dt-distance, dt-style
     None, None, None, None, False,   # dt-num-break, dt-start-station, dt-choke1, dt-choke2, dt-by-station
-    None, None, None, None, None,    # dt-station 1–5
+    None, None, None, None, None, None,    # dt-station 1–5, dt-remarks
 )
 
 
@@ -617,6 +617,19 @@ layout = dbc.Container(
                     ], md=4),
                 ], className="mb-3"),
 
+                # Remarks
+                dbc.Row(
+                    dbc.Col([
+                        html.Label("Remarks (optional)"),
+                        dbc.Textarea(
+                            id="fe-remarks",
+                            placeholder="Free-form notes about this end",
+                            style={"height": "80px"},
+                        ),
+                    ], md=8),
+                    className="mb-3",
+                ),
+
                 # Trap round toggle
                 dbc.Row(
                     dbc.Col([
@@ -723,6 +736,17 @@ layout = dbc.Container(
                                 for i in range(1, 6)
                             ]),
                         ),
+                        dbc.Row(
+                            dbc.Col([
+                                html.Label("Remarks (optional)"),
+                                dbc.Textarea(
+                                    id="fe-trap-remarks",
+                                    placeholder="Free-form notes about this trap round",
+                                    style={"height": "80px"},
+                                ),
+                            ], md=10),
+                            className="mb-3 mt-3",
+                        ),
                     ]), className="bg-light"),
                 ),
 
@@ -793,6 +817,17 @@ layout = dbc.Container(
                                 ),
                             ], md=5),
                         ], className="mb-3"),
+                        dbc.Row(
+                            dbc.Col([
+                                html.Label("Remarks (optional)"),
+                                dbc.Textarea(
+                                    id="fe-skeet-remarks",
+                                    placeholder="Free-form notes about this skeet round",
+                                    style={"height": "80px"},
+                                ),
+                            ], md=10),
+                            className="mb-3",
+                        ),
                     ]), className="bg-light"),
                 ),
 
@@ -901,6 +936,17 @@ layout = dbc.Container(
                                 ], md=2)
                                 for i in range(1, 6)
                             ]),
+                        ),
+                        dbc.Row(
+                            dbc.Col([
+                                html.Label("Remarks (optional)"),
+                                dbc.Textarea(
+                                    id="fe-dt-remarks",
+                                    placeholder="Free-form notes about this double trap round",
+                                    style={"height": "80px"},
+                                ),
+                            ], md=10),
+                            className="mb-3 mt-3",
                         ),
                     ]), className="bg-light"),
                 ),
@@ -1166,6 +1212,7 @@ def toggle_dt_stations(by_station):
     Output("fe-support-hands", "value"),
     Output("fe-sight", "value"),
     Output("fe-stance", "value"),
+    Output("fe-remarks", "value"),
     Output("fe-is-trap", "value", allow_duplicate=True),
     Output("fe-trap-dist-unit", "value"),
     Output("fe-trap-distance", "value"),
@@ -1180,12 +1227,14 @@ def toggle_dt_stations(by_station):
     Output("fe-station-3", "value"),
     Output("fe-station-4", "value"),
     Output("fe-station-5", "value"),
+    Output("fe-trap-remarks", "value"),
     Output("fe-is-skeet", "value", allow_duplicate=True),
     Output("fe-skeet-discipline", "value"),
     Output("fe-skeet-num-break", "value"),
     Output("fe-skeet-choke1", "value"),
     Output("fe-skeet-choke2", "value"),
     Output("fe-skeet-low-gun-start", "value"),
+    Output("fe-skeet-remarks", "value"),
     Output("fe-is-double-trap", "value", allow_duplicate=True),
     Output("fe-dt-dist-unit", "value"),
     Output("fe-dt-distance", "value"),
@@ -1200,6 +1249,7 @@ def toggle_dt_stations(by_station):
     Output("fe-dt-station-3", "value"),
     Output("fe-dt-station-4", "value"),
     Output("fe-dt-station-5", "value"),
+    Output("fe-dt-remarks", "value"),
     Input("fe-add-btn", "n_clicks"),
     State("fv-visit-id-store", "data"),
     State("fe-model", "value"),
@@ -1215,6 +1265,7 @@ def toggle_dt_stations(by_station):
     State("fe-support-hands", "value"),
     State("fe-sight", "value"),
     State("fe-stance", "value"),
+    State("fe-remarks", "value"),
     State("fe-is-trap", "value"),
     State("fe-trap-dist-unit", "value"),
     State("fe-trap-distance", "value"),
@@ -1229,12 +1280,14 @@ def toggle_dt_stations(by_station):
     State("fe-station-3", "value"),
     State("fe-station-4", "value"),
     State("fe-station-5", "value"),
+    State("fe-trap-remarks", "value"),
     State("fe-is-skeet", "value"),
     State("fe-skeet-discipline", "value"),
     State("fe-skeet-num-break", "value"),
     State("fe-skeet-choke1", "value"),
     State("fe-skeet-choke2", "value"),
     State("fe-skeet-low-gun-start", "value"),
+    State("fe-skeet-remarks", "value"),
     State("fe-is-double-trap", "value"),
     State("fe-dt-dist-unit", "value"),
     State("fe-dt-distance", "value"),
@@ -1249,6 +1302,7 @@ def toggle_dt_stations(by_station):
     State("fe-dt-station-3", "value"),
     State("fe-dt-station-4", "value"),
     State("fe-dt-station-5", "value"),
+    State("fe-dt-remarks", "value"),
     State("fe-ends-store", "data"),
     prevent_initial_call=True,
 )
@@ -1257,14 +1311,15 @@ def add_end(
     visit_id, model_id, ammo_type, ammo_id, cartridge_id,
     quantity, dist_unit, distance,
     target_id, shots_scored, pts_stab, support_hands,
-    sight_id, stance,
+    sight_id, stance, remarks,
     is_trap, trap_dist_unit, trap_distance, trap_style,
     trap_num_break, trap_start_station, trap_choke1, trap_choke2, trap_by_station,
-    s1, s2, s3, s4, s5,
+    s1, s2, s3, s4, s5, trap_remarks,
     is_skeet, skeet_discipline, skeet_num_break, skeet_choke1, skeet_choke2, skeet_low_gun_start,
+    skeet_remarks,
     is_double_trap, dt_dist_unit, dt_distance, dt_style,
     dt_num_break, dt_start_station, dt_choke1, dt_choke2, dt_by_station,
-    dt1, dt2, dt3, dt4, dt5,
+    dt1, dt2, dt3, dt4, dt5, dt_remarks,
     ends_store,
 ):
     ends_store = ends_store or []
@@ -1311,6 +1366,7 @@ def add_end(
             supporting_hands=int(support_hands) if support_hands is not None else None,
             firearm_sight_id=int(sight_id) if sight_id else None,
             stance=stance or None,
+            remarks=(remarks or "").strip() or None,
         )
         postgres_session.add(end_obj)
         postgres_session.flush()
@@ -1334,6 +1390,7 @@ def add_end(
                 starting_station=int(trap_start_station) if trap_start_station is not None else None,
                 shotgun_choke_id1=int(trap_choke1) if trap_choke1 else None,
                 shotgun_choke_id2=int(trap_choke2) if trap_choke2 else None,
+                remarks=(trap_remarks or "").strip() or None,
             )
             postgres_session.add(trap_obj)
             postgres_session.flush()
@@ -1355,6 +1412,7 @@ def add_end(
                 shotgun_choke_id1=int(skeet_choke1) if skeet_choke1 else None,
                 shotgun_choke_id2=int(skeet_choke2) if skeet_choke2 else None,
                 low_gun_start=bool(skeet_low_gun_start),
+                remarks=(skeet_remarks or "").strip() or None,
             )
             postgres_session.add(skeet_obj)
             postgres_session.flush()
@@ -1378,6 +1436,7 @@ def add_end(
                 starting_station=int(dt_start_station) if dt_start_station is not None else None,
                 shotgun_choke_id1=int(dt_choke1) if dt_choke1 else None,
                 shotgun_choke_id2=int(dt_choke2) if dt_choke2 else None,
+                remarks=(dt_remarks or "").strip() or None,
             )
             postgres_session.add(dt_obj)
             postgres_session.flush()
