@@ -27,7 +27,7 @@ def get_skeet_rounds(discipline=None):
                 a."name" as ammunition, car.name as cartridge, car.shot_size as shot,
                 c1."name" as choke1, c1.constriction as constriction1,
                 c2."name" as choke2, c2.constriction as constriction2,
-                sk.num_break
+                sk.num_break, sk.remarks
             from firearm_visit v
             join firearm_end e on v.id = e.firearm_visit_id
             join firearm_model m on e.firearm_model_id = m.id
@@ -60,6 +60,7 @@ def get_skeet_rounds(discipline=None):
                 "Choke 2": row[11],
                 "Constriction 2": row[12],
                 "Breaks": row[13],
+                "Remarks": row[14],
             })
         return data
     except Exception as e:
@@ -113,6 +114,7 @@ COLUMNS = [
     {"name": "Ammunition",   "id": "Ammunition",   "type": "text"},
     {"name": "Cartridge",    "id": "Cartridge",    "type": "text"},
     {"name": "Shot",         "id": "Shot",         "type": "text"},
+    {"name": "Remarks",      "id": "Remarks",      "type": "text"},
 ]
 
 layout = dbc.Container(

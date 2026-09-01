@@ -21,7 +21,7 @@ def get_double_trap_rounds(discipline=None):
                 c1."name" as choke1, c1.constriction as constriction1,
                 c2."name" as choke2, c2.constriction as constriction2,
                 dt.num_break, dt.starting_station,
-                dt.distance_yard, dt.distance_m
+                dt.distance_yard, dt.distance_m, dt.remarks
             from firearm_visit v
             join firearm_end e on v.id = e.firearm_visit_id
             join firearm_model m on e.firearm_model_id = m.id
@@ -58,6 +58,7 @@ def get_double_trap_rounds(discipline=None):
                 "Shot": row[7],
                 "Shot Load (oz)": row[8],
                 "Shot Load (g)": row[9],
+                "Remarks": row[18],
             })
         return data
     except Exception as e:
@@ -95,6 +96,7 @@ COLUMNS = [
     {"name": "Shot",                  "id": "Shot",                  "type": "text"},
     {"name": "Shot Load (oz)",        "id": "Shot Load (oz)",        "type": "numeric"},
     {"name": "Shot Load (g)",         "id": "Shot Load (g)",         "type": "numeric"},
+    {"name": "Remarks",               "id": "Remarks",               "type": "text"},
 ]
 
 layout = dbc.Container(
@@ -175,7 +177,7 @@ def load_double_trap_table(discipline, start_date, end_date, selected_columns):
         sort_action="native",
         filter_action="native",
         page_action="native",
-        page_size=50,
+        page_size=10,
         style_cell={"textAlign": "left", "padding": "10px"},
         style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
         style_data_conditional=[
