@@ -47,6 +47,7 @@ app.layout = dbc.Container(
                         dbc.NavLink("Trap", href="/trap", active="exact"),
                         dbc.NavLink("Double Trap", href="/double-trap", active="exact"),
                         dbc.NavLink("Skeet", href="/skeet", active="exact"),
+                        dbc.NavLink("Skeet Shot Backfill", href="/skeet-shot-backfill", active="exact"),
                     ],
                 ),
                 width=12,
