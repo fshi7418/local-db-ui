@@ -15,8 +15,8 @@ def get_trap_rounds(discipline=None):
         session = Session()
         query = text("""
             select
-                t.id, v.visit_date, e.id as end_id, t.discipline, m."name" as gun,
-                a."name" as ammunition, car.name as cartridge, car.shot_size as shot,
+                t.id, v.visit_date, e.id as end_id, t.discipline, coalesce(m.short_name, m."name") as gun,
+                coalesce(a.short_name, a."name") as ammunition, car.name as cartridge, car.shot_size as shot,
                 c1_ma."name" as choke_manufacturer1, c1."name" as choke1,
                 c1.constriction as constriction1, c1.diametre_in as diametre_in1,
                 c2_ma."name" as choke_manufacturer2, c2."name" as choke2,

@@ -79,7 +79,7 @@ def recent_cartridges():
 
 def recent_ammunition():
     return _recent("""
-        select a.id, a.name, m.name as manufacturer,
+        select a.id, coalesce(a.short_name, a.name) as name, m.name as manufacturer,
                c.id as cartridge_id, c.name as cartridge,
                c.shot_size, c.shot_load_oz, c.shot_load_g, c.shot_material,
                a.casing, a.tip, a.muzzle_velocity_fps, a.weight_grain
@@ -92,7 +92,7 @@ def recent_ammunition():
 
 def recent_models():
     return _recent("""
-        select mdl.id, m.name as manufacturer, mdl.name,
+        select mdl.id, m.name as manufacturer, coalesce(mdl.short_name, mdl.name) as name,
                act.name as action, r.restriction_type as restriction,
                c.name as cartridge
         from firearm_model mdl

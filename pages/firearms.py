@@ -32,7 +32,7 @@ def get_firearm_models():
     try:
         session = Session()
         rows = session.execute(text("""
-            select m.id, mfr.name || ' – ' || m.name
+            select m.id, mfr.name || ' – ' || coalesce(m.short_name, m.name)
             from firearm_model m
             join firearm_manufacturer mfr on m.firearm_manufacturer_id = mfr.id
             order by mfr.name, m.name
@@ -48,7 +48,7 @@ def get_firearm_ammunition():
     try:
         session = Session()
         rows = session.execute(text(
-            "select id, name from firearm_ammunition order by name"
+            "select id, coalesce(short_name, name) from firearm_ammunition order by name"
         )).fetchall()
         session.close()
         return [{"label": row[1], "value": row[0]} for row in rows]
@@ -167,7 +167,7 @@ def get_ammunition_data():
         session = Session()
         rows = session.execute(text("""
             select
-                a.id as ammunition_id, a.name as ammunition_name, mfr.name as manufacturer,
+                a.id as ammunition_id, coalesce(a.short_name, a.name) as ammunition_name, mfr.name as manufacturer,
                 c.id as cartridge_id, c.name as cartridge_name, c.shot_size, c.shot_load_oz, c.shot_load_g, c.shot_material,
                 a.muzzle_velocity_fps, a.weight_grain
             from firearm_ammunition a
@@ -237,12 +237,12 @@ def get_shots_by_model():
     try:
         session = Session()
         query = text("""
-            select m.name as manufacturer, model.name as model, sum(e.quantity) as num_shots
+            select m.name as manufacturer, coalesce(model.short_name, model.name) as model, sum(e.quantity) as num_shots
             from firearm_end e, firearm_model model, firearm_manufacturer m
             where e.firearm_model_id = model.id
             and model.firearm_manufacturer_id = m.id
             and e.quantity is not null
-            group by m.name, model.name
+            group by m.name, coalesce(model.short_name, model.name)
             order by sum(e.quantity) desc
             limit 15
         """)
@@ -258,7 +258,7 @@ def get_shots_by_ammunition():
     try:
         session = Session()
         query = text("""
-            select a.name as ammunition, max(m.name) as manufacturer, max(c.name) as cartridge, a.casing, a.tip, a.muzzle_velocity_fps, a.weight_grain, max(c.shot_size) as shot_size, max(c.shot_load_oz) as shot_load_oz, max(c.shot_load_g) as shot_load_g, sum(e.quantity) as num_shots
+            select coalesce(a.short_name, a.name) as ammunition, max(m.name) as manufacturer, max(c.name) as cartridge, a.casing, a.tip, a.muzzle_velocity_fps, a.weight_grain, max(c.shot_size) as shot_size, max(c.shot_load_oz) as shot_load_oz, max(c.shot_load_g) as shot_load_g, sum(e.quantity) as num_shots
             from firearm_end e, firearm_ammunition a, firearm_cartridge c, firearm_manufacturer m
             where e.firearm_ammunition_id = a.id
             and a.firearm_cartridge_id = c.id

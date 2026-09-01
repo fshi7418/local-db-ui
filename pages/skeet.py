@@ -23,8 +23,8 @@ def get_skeet_rounds(discipline=None):
         session = Session()
         query = text("""
             select
-                sk.id, v.visit_date, e.id as end_id, sk.discipline, sk.low_gun_start, m."name" as gun,
-                a."name" as ammunition, car.name as cartridge, car.shot_size as shot,
+                sk.id, v.visit_date, e.id as end_id, sk.discipline, sk.low_gun_start, coalesce(m.short_name, m."name") as gun,
+                coalesce(a.short_name, a."name") as ammunition, car.name as cartridge, car.shot_size as shot,
                 c1."name" as choke1, c1.constriction as constriction1,
                 c2."name" as choke2, c2.constriction as constriction2,
                 sk.num_break, sk.remarks
@@ -124,7 +124,6 @@ HIDDEN_BY_DEFAULT = {
     "End ID",
     "Choke 1",
     "Choke 2",
-    "Constriction 2",
 }
 
 DEFAULT_COLUMNS = [col["id"] for col in COLUMNS if col["id"] not in HIDDEN_BY_DEFAULT]

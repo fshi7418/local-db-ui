@@ -15,8 +15,8 @@ def get_double_trap_rounds(discipline=None):
         session = Session()
         query = text("""
             select
-                dt.id, v.visit_date, e.id as end_id, dt.discipline, m."name" as gun,
-                a."name" as ammunition, car.name as cartridge, car.shot_size as shot,
+                dt.id, v.visit_date, e.id as end_id, dt.discipline, coalesce(m.short_name, m."name") as gun,
+                coalesce(a.short_name, a."name") as ammunition, car.name as cartridge, car.shot_size as shot,
                 car.shot_load_oz, car.shot_load_g,
                 c1."name" as choke1, c1.constriction as constriction1,
                 c2."name" as choke2, c2.constriction as constriction2,
@@ -106,7 +106,6 @@ HIDDEN_BY_DEFAULT = {
     "End ID",
     "Choke 1",
     "Choke 2",
-    "Constriction 2",
 }
 
 DEFAULT_COLUMNS = [col["id"] for col in COLUMNS if col["id"] not in HIDDEN_BY_DEFAULT]

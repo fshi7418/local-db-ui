@@ -25,7 +25,7 @@ def get_round_info(round_id):
     try:
         session = Session()
         row = session.execute(text("""
-            select sk.id, sk.discipline, sk.num_break, v.visit_date, m."name" as gun
+            select sk.id, sk.discipline, sk.num_break, v.visit_date, coalesce(m.short_name, m."name") as gun
             from skeet_round sk
             join firearm_end e on sk.firearm_end_id = e.id
             join firearm_visit v on e.firearm_visit_id = v.id
