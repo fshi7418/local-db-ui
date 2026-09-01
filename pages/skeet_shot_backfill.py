@@ -6,92 +6,17 @@ from sqlalchemy import text
 
 from models import Session, postgres_session
 from models.firearm import SkeetShot
+from components.skeet_targets import (
+    OPTION_LABEL,
+    SHOT_CELL_STYLE,
+    SHOT_HEADER_STYLE,
+    cell_id,
+    get_sequence,
+    miss_highlight,
+    shot_columns,
+)
 
 dash.register_page(__name__, path="/skeet-shot-backfill")
-
-
-# ── Target sequences ────────────────────────────────────────────────────────────
-# Each entry is (label, station, house, single_double, pair_order). The order of
-# the list is the order the targets are shot, so shot_order is the 1-based index.
-# The American option ("OPT") is resolved at save time — it repeats the first
-# target missed in the round, or the last target (8L) if the shooter ran 24.
-
-AMERICAN_SEQUENCE = [
-    ("1H",  1, "high", "single", None),
-    ("1L",  1, "low",  "single", None),
-    ("1DH", 1, "high", "double", 1),
-    ("1DL", 1, "low",  "double", 2),
-    ("2H",  2, "high", "single", None),
-    ("2L",  2, "low",  "single", None),
-    ("2DH", 2, "high", "double", 1),
-    ("2DL", 2, "low",  "double", 2),
-    ("3H",  3, "high", "single", None),
-    ("3L",  3, "low",  "single", None),
-    ("4H",  4, "high", "single", None),
-    ("4L",  4, "low",  "single", None),
-    ("5H",  5, "high", "single", None),
-    ("5L",  5, "low",  "single", None),
-    ("6H",  6, "high", "single", None),
-    ("6L",  6, "low",  "single", None),
-    ("6DL", 6, "low",  "double", 1),
-    ("6DH", 6, "high", "double", 2),
-    ("7H",  7, "high", "single", None),
-    ("7L",  7, "low",  "single", None),
-    ("7DL", 7, "low",  "double", 1),
-    ("7DH", 7, "high", "double", 2),
-    ("8H",  8, "high", "single", None),
-    ("8L",  8, "low",  "single", None),
-    ("OPT", None, None, None, None),
-]
-
-INTERNATIONAL_SEQUENCE = [
-    ("1H",  1, "high", "single", None),
-    ("1DH", 1, "high", "double", 1),
-    ("1DL", 1, "low",  "double", 2),
-    ("2H",  2, "high", "single", None),
-    ("2DH", 2, "high", "double", 1),
-    ("2DL", 2, "low",  "double", 2),
-    ("3H",  3, "high", "single", None),
-    ("3DH", 3, "high", "double", 1),
-    ("3DL", 3, "low",  "double", 2),
-    ("4H",  4, "high", "single", None),
-    ("4L",  4, "low",  "single", None),
-    ("5L",  5, "low",  "single", None),
-    ("5DL", 5, "low",  "double", 1),
-    ("5DH", 5, "high", "double", 2),
-    ("6L",  6, "low",  "single", None),
-    ("6DL", 6, "low",  "double", 1),
-    ("6DH", 6, "high", "double", 2),
-    ("7DL", 7, "low",  "double", 1),
-    ("7DH", 7, "high", "double", 2),
-    ("4DH", 4, "high", "double", 1),
-    ("4DL", 4, "low",  "double", 2),
-    ("4DL", 4, "low",  "double", 1),
-    ("4DH", 4, "high", "double", 2),
-    ("8H",  8, "high", "single", None),
-    ("8L",  8, "low",  "single", None),
-]
-
-SEQUENCES = {
-    "american": AMERICAN_SEQUENCE,
-    "international": INTERNATIONAL_SEQUENCE,
-}
-
-OPTION_LABEL = "OPT"
-
-
-def get_sequence(discipline):
-    """Return the target sequence for a discipline, or None if unsupported."""
-    return SEQUENCES.get((discipline or "").strip().lower())
-
-
-def cell_id(index):
-    """Column id for the shot at 1-based position `index`.
-
-    Labels repeat within a round (ISSF shoots station 4 doubles twice), so the
-    position — not the label — is what identifies a column.
-    """
-    return f"shot-{index}"
 
 
 # ── Data helpers ────────────────────────────────────────────────────────────────
@@ -107,10 +32,15 @@ def get_round_info(round_id):
             left join firearm_model m on e.firearm_model_id = m.id
             where sk.id = :id
         """), {"id": round_id}).fetchone()
-        existing = session.execute(
-            text("select count(*) from skeet_shot where skeet_round_id = :id"),
+        shots = session.execute(
+            text("""
+                select shot_order, broken
+                from skeet_shot
+                where skeet_round_id = :id
+                order by shot_order
+            """),
             {"id": round_id},
-        ).scalar()
+        ).fetchall()
         session.close()
         if not row:
             return None
@@ -120,51 +50,33 @@ def get_round_info(round_id):
             "num_break": row[2],
             "visit_date": row[3].strftime("%Y-%m-%d") if row[3] else None,
             "gun": row[4],
-            "existing_shots": existing or 0,
+            "existing_shots": len(shots),
+            # position in the target sequence -> 1 (hit) / 0 (miss)
+            "stored": {s[0]: 1 if s[1] else 0 for s in shots},
         }
     except Exception as e:
         print(f"Error querying skeet round {round_id}: {e}")
         return None
 
 
-def build_table(sequence):
-    columns = [
-        {
-            "name": label,
-            "id": cell_id(i),
-            "type": "numeric",
-        }
-        for i, (label, *_rest) in enumerate(sequence, start=1)
-    ]
-    data = [{cell_id(i): 1 for i in range(1, len(sequence) + 1)}]
-    # highlight a cell as soon as it is set to 0, so misses stand out
-    miss_style = [
-        {
-            "if": {"filter_query": f"{{{cell_id(i)}}} = 0", "column_id": cell_id(i)},
-            "backgroundColor": "#f8d7da",
-            "fontWeight": "bold",
-        }
-        for i in range(1, len(sequence) + 1)
-    ]
+def build_table(sequence, stored=None):
+    """Editable one-row table for a round.
+
+    `stored` maps a 1-based sequence position to 1/0 for a round that already
+    has a shot-by-shot record; any position it does not cover falls back to 1,
+    so a fresh round is an all-hits template.
+    """
+    stored = stored or {}
     return DataTable(
         id="ssb-table",
-        columns=columns,
-        data=data,
+        columns=shot_columns(sequence),
+        data=[{cell_id(i): stored.get(i, 1) for i in range(1, len(sequence) + 1)}],
         editable=True,
         style_table={"overflowX": "auto"},
-        style_cell={
-            "textAlign": "center",
-            "padding": "6px",
-            "minWidth": "52px",
-            "width": "52px",
-            "maxWidth": "52px",
-        },
-        style_header={
-            "backgroundColor": "rgb(230, 230, 230)",
-            "fontWeight": "bold",
-            "whiteSpace": "normal",
-        },
-        style_data_conditional=miss_style,
+        style_cell=SHOT_CELL_STYLE,
+        style_header=SHOT_HEADER_STYLE,
+        # highlight a cell as soon as it is set to 0, so misses stand out
+        style_data_conditional=miss_highlight(sequence),
     )
 
 
@@ -243,19 +155,20 @@ layout = dbc.Container(
     Output("ssb-entry-collapse", "is_open"),
     Output("ssb-round-store", "data"),
     Output("ssb-save-result", "children", allow_duplicate=True),
+    Output("ssb-overwrite", "value"),
     Input("ssb-load-btn", "n_clicks"),
     State("ssb-round-id", "value"),
     prevent_initial_call=True,
 )
 def load_round(_, round_id):
     if round_id is None:
-        return dbc.Alert("Enter a skeet round ID.", color="warning"), None, False, None, None
+        return dbc.Alert("Enter a skeet round ID.", color="warning"), None, False, None, None, []
 
     info = get_round_info(int(round_id))
     if info is None:
         return (
             dbc.Alert(f"No skeet round found with ID {int(round_id)}.", color="danger"),
-            None, False, None, None,
+            None, False, None, None, [],
         )
 
     sequence = get_sequence(info["discipline"])
@@ -266,7 +179,7 @@ def load_round(_, round_id):
                 f"no defined target sequence. Supported: American, International.",
                 color="danger",
             ),
-            None, False, None, None,
+            None, False, None, None, [],
         )
 
     details = [
@@ -279,14 +192,26 @@ def load_round(_, round_id):
     colour = "info"
     if info["existing_shots"]:
         colour = "warning"
-        children.append(html.Div(
-            f"This round already has {info['existing_shots']} shot(s) recorded. "
-            f"Tick “Replace existing shots” to overwrite them.",
-            className="mt-2 fw-bold",
-        ))
+        note = (
+            f"Showing the {info['existing_shots']} shot(s) already recorded for this "
+            f"round. Tick “Replace existing shots” to save any changes."
+        )
+        if info["existing_shots"] != len(sequence):
+            note += (
+                f" Only {info['existing_shots']} of {len(sequence)} targets are on "
+                f"file; the rest default to 1."
+            )
+        children.append(html.Div(note, className="mt-2 fw-bold"))
 
     store = {"round_id": info["id"], "discipline": info["discipline"]}
-    return dbc.Alert(children, color=colour), build_table(sequence), True, store, None
+    return (
+        dbc.Alert(children, color=colour),
+        build_table(sequence, info["stored"]),
+        True,
+        store,
+        None,
+        [],
+    )
 
 
 @callback(
