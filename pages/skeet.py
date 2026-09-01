@@ -10,7 +10,7 @@ from models import Session
 dash.register_page(__name__, path="/skeet")
 
 
-def get_skeet_rounds():
+def get_skeet_rounds(discipline=None):
     try:
         session = Session()
         query = text("""
@@ -35,6 +35,8 @@ def get_skeet_rounds():
 
         data = []
         for row in result:
+            if discipline and row[3] != discipline:
+                continue
             data.append({
                 "ID": row[0],
                 "Visit Date": row[1].strftime("%Y-%m-%d") if row[1] else None,
@@ -54,6 +56,17 @@ def get_skeet_rounds():
         return data
     except Exception as e:
         print(f"Error querying skeet rounds: {e}")
+        return []
+
+
+def get_disciplines():
+    try:
+        session = Session()
+        result = session.execute(text("select distinct discipline from skeet_round where discipline is not null order by discipline")).fetchall()
+        session.close()
+        return [{"label": row[0], "value": row[0]} for row in result]
+    except Exception as e:
+        print(f"Error querying disciplines: {e}")
         return []
 
 
@@ -81,6 +94,28 @@ layout = dbc.Container(
             className="mb-4",
         ),
         dbc.Row(
+            [
+                dbc.Col([
+                    html.Label("Filter by Discipline"),
+                    dcc.Dropdown(
+                        id="skeet-filter-discipline",
+                        options=get_disciplines(),
+                        placeholder="All disciplines",
+                        clearable=True,
+                    ),
+                ], md=4),
+                dbc.Col([
+                    html.Label("Date Range"),
+                    dcc.DatePickerRange(
+                        id="skeet-filter-date-range",
+                        display_format="YYYY-MM-DD",
+                        clearable=True,
+                    ),
+                ], md=5),
+            ],
+            className="mb-3",
+        ),
+        dbc.Row(
             dbc.Col([
                 html.Label("Columns to Display"),
                 dcc.Dropdown(
@@ -106,10 +141,17 @@ layout = dbc.Container(
 
 @callback(
     Output("skeet-table", "children"),
+    Input("skeet-filter-discipline", "value"),
+    Input("skeet-filter-date-range", "start_date"),
+    Input("skeet-filter-date-range", "end_date"),
     Input("skeet-filter-columns", "value"),
 )
-def load_skeet_table(selected_columns):
-    data = get_skeet_rounds()
+def load_skeet_table(discipline, start_date, end_date, selected_columns):
+    data = get_skeet_rounds(discipline=discipline)
+    if start_date:
+        data = [r for r in data if r["Visit Date"] and r["Visit Date"] >= start_date]
+    if end_date:
+        data = [r for r in data if r["Visit Date"] and r["Visit Date"] <= end_date]
     if not data:
         return html.P("No skeet rounds found.", className="text-muted")
     if selected_columns:
@@ -123,7 +165,7 @@ def load_skeet_table(selected_columns):
         sort_action="native",
         filter_action="native",
         page_action="native",
-        page_size=50,
+        page_size=10,
         style_cell={"textAlign": "left", "padding": "10px"},
         style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
         style_data_conditional=[
