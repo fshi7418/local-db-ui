@@ -99,6 +99,20 @@ COLUMNS = [
     {"name": "Remarks",               "id": "Remarks",               "type": "text"},
 ]
 
+# Columns available in the picker but hidden until the user asks for them:
+# choke names and manufacturers (the constriction is the useful part), everything
+# about the second choke, and the end id.
+HIDDEN_BY_DEFAULT = {
+    "End ID",
+    "Choke 1",
+    "Choke Mfr 1",
+    "Choke 2",
+    "Constriction 2",
+    "Choke Mfr 2",
+}
+
+DEFAULT_COLUMNS = [col["id"] for col in COLUMNS if col["id"] not in HIDDEN_BY_DEFAULT]
+
 layout = dbc.Container(
     [
         dbc.Row(
@@ -133,7 +147,7 @@ layout = dbc.Container(
                 dcc.Dropdown(
                     id="trap-filter-columns",
                     options=[{"label": col["name"], "value": col["id"]} for col in COLUMNS],
-                    value=[col["id"] for col in COLUMNS],
+                    value=DEFAULT_COLUMNS,
                     multi=True,
                     placeholder="Select columns",
                 ),
