@@ -136,7 +136,7 @@ def get_visits_data():
         session = Session()
         rows = session.execute(text("""
             select
-                v.firearm_range_id, v.visit_date, v.time_start, v.time_end,
+                v.id, v.firearm_range_id, v.visit_date, v.time_start, v.time_end,
                 rng.name, rng.address_street, rng.address_city, rng.address_province, rng.address_country
             from firearm_visit v, firearm_range rng
             where v.firearm_range_id = rng.id
@@ -145,15 +145,16 @@ def get_visits_data():
         session.close()
         return [
             {
-                "Range ID": r[0],
-                "Date": str(r[1]),
-                "Start": r[2],
-                "End": r[3],
-                "Range": r[4],
-                "Street": r[5],
-                "City": r[6],
-                "Province": r[7],
-                "Country": r[8],
+                "Visit ID": r[0],
+                "Range ID": r[1],
+                "Date": str(r[2]),
+                "Start": r[3],
+                "End": r[4],
+                "Range": r[5],
+                "Street": r[6],
+                "City": r[7],
+                "Province": r[8],
+                "Country": r[9],
             }
             for r in rows
         ]
