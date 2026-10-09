@@ -7,6 +7,7 @@ from sqlalchemy import text
 from models import Session, postgres_session
 from models.archery import (
     ArcheryManufacturer, ArcheryArrow, ArcheryReleaseAid, ArcheryArrowRest, ArcheryLimb,
+    ArcherySight, ArcheryTarget,
 )
 
 dash.register_page(__name__, path="/archery-data")
@@ -171,6 +172,23 @@ def recent_arrow_rests():
     """)
 
 
+def recent_sights():
+    return _table("""
+        select s.id, m.name as manufacturer, s.name, s.magnification
+        from archery_sight s
+        left join archery_manufacturer m on s.archery_manufacturer_id = m.id
+        order by s.id desc limit 10
+    """)
+
+
+def recent_targets():
+    return _table("""
+        select id, type, full_size_cm, actual_size_cm, minimum_score
+        from archery_target
+        order by id desc limit 10
+    """)
+
+
 def recent_limbs():
     return _table("""
         select l.id, t.name as bow_type, m.name as manufacturer, l.name, l.total_length_in,
@@ -321,6 +339,57 @@ limb_tab = dbc.Card(dbc.CardBody([
 ]))
 
 
+sight_tab = dbc.Card(dbc.CardBody([
+    html.H4("Add Sight", className="card-title"),
+    dbc.Row([
+        _text_col("Name *", "asg-name", "e.g. Shibuya Dual Click"),
+        _dropdown_col("Manufacturer", "asg-manufacturer", "Select manufacturer"),
+        _text_col("Magnification", "asg-magnification", md=4, type_="number"),
+    ], className="mb-3"),
+    dbc.Button("Add Sight", id="asg-add-btn", color="primary"),
+    *_recent_section("asg"),
+]))
+
+
+# Scoring ring diameters on archery_target, outermost ring last.
+RING_FIELDS = [
+    ("X", "cm_x"), ("10", "cm_ten"), ("9", "cm_nine"), ("8", "cm_eight"),
+    ("7", "cm_seven"), ("6", "cm_six"), ("5", "cm_five"), ("4", "cm_four"),
+    ("3", "cm_three"), ("2", "cm_two"), ("1", "cm_one"),
+]
+
+
+def _ring_id(column):
+    return f"atg-{column.replace('_', '-')}"
+
+
+def _ring_rows():
+    cols = [
+        _text_col(f"{ring} (cm)", _ring_id(column), md=3, type_="number")
+        for ring, column in RING_FIELDS
+    ]
+    return [dbc.Row(cols[i:i + 4], className="mb-3") for i in range(0, len(cols), 4)]
+
+
+target_tab = dbc.Card(dbc.CardBody([
+    html.H4("Add Target", className="card-title"),
+    dbc.Row([
+        _text_col("Type *", "atg-type", "e.g. Bullseye", list="atg-type-list"),
+        _text_col("Minimum Score *", "atg-minimum-score", md=4, type_="number"),
+    ], className="mb-3"),
+    html.Datalist(id="atg-type-list"),
+    dbc.Row([
+        _text_col("Full Size (cm)", "atg-full-size", md=4, type_="number"),
+        _text_col("Actual Size (cm)", "atg-actual-size", md=4, type_="number"),
+    ], className="mb-3"),
+    html.Hr(),
+    html.H6("Ring Sizes", className="text-muted"),
+    *_ring_rows(),
+    dbc.Button("Add Target", id="atg-add-btn", color="primary"),
+    *_recent_section("atg"),
+]))
+
+
 layout = dbc.Container([
     dbc.Row(dbc.Col(html.H2("Archery Data"), width=12), className="mb-2 mt-2"),
     dbc.Row(dbc.Col(html.P(
@@ -336,6 +405,8 @@ layout = dbc.Container([
         dbc.Tab(release_aid_tab, label="Release Aid", tab_id="tab-release-aid"),
         dbc.Tab(arrow_rest_tab, label="Arrow Rest", tab_id="tab-arrow-rest"),
         dbc.Tab(limb_tab, label="Limb", tab_id="tab-limb"),
+        dbc.Tab(sight_tab, label="Sight", tab_id="tab-sight"),
+        dbc.Tab(target_tab, label="Target", tab_id="tab-target"),
     ], id="ad-tabs", active_tab="tab-most-used"),
 
     # Bumped after every successful insert so dropdowns/tables refresh.
@@ -350,38 +421,44 @@ layout = dbc.Container([
     Output("arl-manufacturer", "options"),
     Output("ars-manufacturer", "options"),
     Output("alm-manufacturer", "options"),
+    Output("asg-manufacturer", "options"),
     Output("alm-bow-type", "options"),
     Output("aar-fletching-list", "children"),
     Output("ars-type-list", "children"),
+    Output("atg-type-list", "children"),
     Output("ad-most-used", "children"),
     Output("amf-recent", "children"),
     Output("aar-recent", "children"),
     Output("arl-recent", "children"),
     Output("ars-recent", "children"),
     Output("alm-recent", "children"),
+    Output("asg-recent", "children"),
+    Output("atg-recent", "children"),
     Input("ad-tabs", "active_tab"),
     Input("ad-refresh", "data"),
 )
 def refresh_reference(_active_tab, _refresh):
     manufacturers = get_manufacturers()
     return (
-        manufacturers, manufacturers, manufacturers, manufacturers,
+        manufacturers, manufacturers, manufacturers, manufacturers, manufacturers,
         get_bow_types(),
         _distinct("select distinct fletching from archery_arrow order by 1"),
         _distinct("select distinct arrow_rest_type from archery_arrow_rest order by 1"),
+        _distinct("select distinct type from archery_target order by 1"),
         most_used_tables(),
         recent_manufacturers(), recent_arrows(), recent_release_aids(),
-        recent_arrow_rests(), recent_limbs(),
+        recent_arrow_rests(), recent_limbs(), recent_sights(), recent_targets(),
     )
 
 
 # ── Insert callbacks ─────────────────────────────────────────────────────────────
 
-def _insert(obj, label, refresh, name):
+def _insert(obj, label, refresh, name, name_attr="name"):
     try:
         postgres_session.add(obj)
         postgres_session.commit()
-        return ok(f"{label} #{obj.id} '{obj.name}' added."), (refresh or 0) + 1, None
+        shown = getattr(obj, name_attr)
+        return ok(f"{label} #{obj.id} '{shown}' added."), (refresh or 0) + 1, None
     except Exception as e:
         postgres_session.rollback()
         return err(f"Error: {e}"), refresh, name
@@ -499,3 +576,57 @@ def add_limb(_n, name, manufacturer_id, bow_type_id, length, dw_min, dw_max, ref
         draw_weight_lb_max=_f(dw_max),
     )
     return _insert(obj, "Limb", refresh, name)
+
+
+@callback(
+    Output("asg-alert", "children"),
+    Output("ad-refresh", "data", allow_duplicate=True),
+    Output("asg-name", "value"),
+    Input("asg-add-btn", "n_clicks"),
+    State("asg-name", "value"),
+    State("asg-manufacturer", "value"),
+    State("asg-magnification", "value"),
+    State("ad-refresh", "data"),
+    prevent_initial_call=True,
+)
+def add_sight(_n, name, manufacturer_id, magnification, refresh):
+    if not _s(name):
+        return warn("Name is required."), refresh, name
+    obj = ArcherySight(
+        name=_s(name),
+        archery_manufacturer_id=_i(manufacturer_id),
+        magnification=_i(magnification),
+    )
+    return _insert(obj, "Sight", refresh, name)
+
+
+RING_STATES = [State(_ring_id(column), "value") for _, column in RING_FIELDS]
+
+
+@callback(
+    Output("atg-alert", "children"),
+    Output("ad-refresh", "data", allow_duplicate=True),
+    Output("atg-type", "value"),
+    Input("atg-add-btn", "n_clicks"),
+    State("atg-type", "value"),
+    State("atg-minimum-score", "value"),
+    State("atg-full-size", "value"),
+    State("atg-actual-size", "value"),
+    *RING_STATES,
+    State("ad-refresh", "data"),
+    prevent_initial_call=True,
+)
+def add_target(_n, type_, minimum_score, full_size, actual_size, *rings_then_refresh):
+    *rings, refresh = rings_then_refresh
+    if not _s(type_):
+        return warn("Type is required."), refresh, type_
+    if _i(minimum_score) is None:
+        return warn("Minimum score is required."), refresh, type_
+    obj = ArcheryTarget(
+        type=_s(type_),
+        minimum_score=_i(minimum_score),
+        full_size_cm=_f(full_size),
+        actual_size_cm=_f(actual_size),
+        **{column: _f(value) for (_, column), value in zip(RING_FIELDS, rings)},
+    )
+    return _insert(obj, "Target", refresh, type_, name_attr="type")

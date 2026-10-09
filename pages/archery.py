@@ -157,19 +157,25 @@ def get_archery_arrow_rests():
 
 
 def get_archery_sights():
-    return _options("select id, name from archery_sight order by name")
+    return _options(
+        "select id, name from archery_sight order by name",
+        lambda r: f"{r[0]} - {r[1]}",
+    )
 
 
 def get_archery_release_aids():
-    return _options("select id, name from archery_release_aid order by name")
+    return _options(
+        "select id, name from archery_release_aid order by name",
+        lambda r: f"{r[0]} - {r[1]}",
+    )
 
 
 def get_archery_targets():
     return _options(
         "select id, type, full_size_cm, actual_size_cm from archery_target order by id",
-        lambda r: " – ".join(
+        lambda r: f"{r[0]} - " + " – ".join(
             p for p in [
-                r[1] or f"Target {r[0]}",
+                r[1] or "Target",
                 f"{r[2]:g} cm" if r[2] else None,
                 f"actual {r[3]:g} cm" if r[3] and r[3] != r[2] else None,
             ] if p
