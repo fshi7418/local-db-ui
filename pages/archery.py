@@ -129,24 +129,30 @@ def get_archery_ranges():
 
 
 def get_archery_risers():
-    return _options("select id, name from archery_riser order by name")
+    return _options(
+        "select id, name from archery_riser order by name",
+        lambda r: f"{r[0]} - {r[1]}",
+    )
 
 
 def get_archery_limbs():
-    return _options("select id, name from archery_limb order by name")
+    return _options(
+        "select id, name from archery_limb order by name",
+        lambda r: f"{r[0]} - {r[1]}",
+    )
 
 
 def get_archery_arrows():
     return _options(
         "select id, name, spine from archery_arrow order by name",
-        lambda r: f"{r[1]} (spine {r[2]})" if r[2] else r[1],
+        lambda r: f"{r[0]} - {r[1]} (spine {r[2]})" if r[2] else f"{r[0]} - {r[1]}",
     )
 
 
 def get_archery_arrow_rests():
     return _options(
         "select id, name, arrow_rest_type from archery_arrow_rest order by name",
-        lambda r: f"{r[1]} ({r[2]})" if r[2] else r[1],
+        lambda r: f"{r[0]} - {r[1]} ({r[2]})" if r[2] else f"{r[0]} - {r[1]}",
     )
 
 
