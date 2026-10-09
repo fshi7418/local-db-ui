@@ -42,6 +42,7 @@ app.layout = dbc.Container(
                         dbc.NavLink("Budget", href="/budget", active="exact"),
                         dbc.NavLink("Books", href="/books", active="exact"),
                         dbc.NavLink("Archery", href="/archery", active="exact"),
+                        dbc.NavLink("Archery Data", href="/archery-data", active="exact"),
                         dbc.NavLink("Firearms", href="/firearms", active="exact"),
                         dbc.NavLink("Firearm Data", href="/firearm-data", active="exact"),
                         dbc.NavLink("Trap", href="/trap", active="exact"),
