@@ -1,5 +1,6 @@
 import dash
 from dash import dcc, html, callback, Input, Output, State, ctx
+from dash.dash_table import DataTable
 import dash_bootstrap_components as dbc
 import pandas as pd
 from sqlalchemy import text
@@ -44,7 +45,8 @@ def get_restrictions():
     )
 
 
-def _recent(sql):
+def _table(sql):
+    """Paginated, sortable, filterable table of every row returned by `sql`."""
     try:
         session = Session()
         rows = session.execute(text(sql)).fetchall()
@@ -53,32 +55,43 @@ def _recent(sql):
         if not rows:
             return html.P("No rows yet.", className="text-muted")
         df = pd.DataFrame([dict(r._mapping) for r in rows], columns=cols)
-        return dbc.Table.from_dataframe(
-            df, striped=True, bordered=True, hover=True, size="sm"
+        return DataTable(
+            columns=[{"name": c, "id": c} for c in cols],
+            data=df.to_dict("records"),
+            sort_action="native",
+            filter_action="native",
+            page_action="native",
+            page_size=10,
+            style_table={"overflowX": "auto"},
+            style_cell={"textAlign": "left", "padding": "6px"},
+            style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
+            style_data_conditional=[
+                {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"}
+            ],
         )
     except Exception as e:
         return html.P(f"Error: {e}", className="text-danger")
 
 
-def recent_manufacturers():
-    return _recent(
+def all_manufacturers():
+    return _table(
         "select id, name, country_iso, website "
-        "from firearm_manufacturer order by id desc limit 10"
+        "from firearm_manufacturer order by id desc"
     )
 
 
-def recent_cartridges():
-    return _recent("""
+def all_cartridges():
+    return _table("""
         select id, name, strike_type, shot_size, shot_material,
                shot_load_oz, shot_load_g, length_mm_case, length_in_case,
                diameter_in_base, diameter_mm_base, diameter_mm_bullet,
                diameter_in_bullet, diameter_in_land, diameter_mm_land
-        from firearm_cartridge order by id desc limit 10
+        from firearm_cartridge order by id desc
     """)
 
 
-def recent_ammunition():
-    return _recent("""
+def all_ammunition():
+    return _table("""
         select a.id, coalesce(a.short_name, a.name) as name, m.name as manufacturer,
                c.id as cartridge_id, c.name as cartridge,
                c.shot_size, c.shot_load_oz, c.shot_load_g, c.shot_material,
@@ -86,12 +99,12 @@ def recent_ammunition():
         from firearm_ammunition a
         left join firearm_manufacturer m on a.firearm_manufacturer_id = m.id
         left join firearm_cartridge c on a.firearm_cartridge_id = c.id
-        order by a.id desc limit 10
+        order by a.id desc
     """)
 
 
-def recent_models():
-    return _recent("""
+def all_models():
+    return _table("""
         select mdl.id, m.name as manufacturer, coalesce(mdl.short_name, mdl.name) as name,
                act.name as action, r.restriction_type as restriction,
                c.name as cartridge
@@ -100,7 +113,7 @@ def recent_models():
         left join firearm_action act on mdl.firearm_action_id = act.id
         left join firearm_restriction r on mdl.firearm_restriction_id = r.id
         left join firearm_cartridge c on mdl.firearm_cartridge_id1 = c.id
-        order by mdl.id desc limit 10
+        order by mdl.id desc
     """)
 
 
@@ -163,7 +176,7 @@ manufacturer_tab = dbc.Card(dbc.CardBody([
     dbc.Button("Add Manufacturer", id="mf-add-btn", color="primary"),
     html.Div(id="mf-alert", className="mt-3"),
     html.Hr(),
-    html.H6("Recently added"),
+    html.H6("All records"),
     html.Div(id="mf-recent"),
 ]))
 
@@ -193,7 +206,7 @@ cartridge_tab = dbc.Card(dbc.CardBody([
     dbc.Button("Add Cartridge", id="ct-add-btn", color="primary"),
     html.Div(id="ct-alert", className="mt-3"),
     html.Hr(),
-    html.H6("Recently added"),
+    html.H6("All records"),
     html.Div(id="ct-recent"),
 ]))
 
@@ -223,7 +236,7 @@ ammunition_tab = dbc.Card(dbc.CardBody([
     dbc.Button("Add Ammunition", id="am-add-btn", color="primary"),
     html.Div(id="am-alert", className="mt-3"),
     html.Hr(),
-    html.H6("Recently added"),
+    html.H6("All records"),
     html.Div(id="am-recent"),
 ]))
 
@@ -301,7 +314,7 @@ model_tab = dbc.Card(dbc.CardBody([
     dbc.Button("Add Model", id="md-add-btn", color="primary"),
     html.Div(id="md-alert", className="mt-3"),
     html.Hr(),
-    html.H6("Recently added"),
+    html.H6("All records"),
     html.Div(id="md-recent"),
 ]))
 
@@ -356,8 +369,8 @@ def refresh_reference(_active_tab, _refresh):
         manufacturers, get_actions(), get_restrictions(),
         cartridges, cartridges, cartridges, cartridges,
         cartridges, cartridges, cartridges,
-        recent_manufacturers(), recent_cartridges(),
-        recent_ammunition(), recent_models(),
+        all_manufacturers(), all_cartridges(),
+        all_ammunition(), all_models(),
     )
 
 
