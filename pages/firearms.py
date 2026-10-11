@@ -378,20 +378,37 @@ DOUBLE_TRAP_STYLE_OPTIONS = [
     {"label": "American (ATA)", "value": "American"},
 ]
 
-# Default reset values for end form fields (51 values, one per add_end output after alert/store/table)
-_RESET_END = (
-    None, "ammo", None, None,     # model, ammo-type, ammo, cartridge
-    None, "yd", None,             # quantity, dist-unit, distance
-    None, None, None, None,       # target, shots-scored, pts-stab, support-hands
-    None, None, None,             # sight, stance, remarks
-    False, "yd", None, None,         # is-trap, trap-dist-unit, trap-distance, trap-style
-    None, None, None, None, False,   # trap-num-break, trap-start-station, trap-choke1, trap-choke2, trap-by-station
-    None, None, None, None, None, None, # station 1–5, trap-remarks
-    False, None, None, None, None, False, None,   # is-skeet, skeet-discipline, skeet-num-break, skeet-choke1, skeet-choke2, skeet-low-gun-start, skeet-remarks
-    False, "yd", None, None,         # is-double-trap, dt-dist-unit, dt-distance, dt-style
-    None, None, None, None, False,   # dt-num-break, dt-start-station, dt-choke1, dt-choke2, dt-by-station
-    None, None, None, None, None, None,    # dt-station 1–5, dt-remarks
-)
+# End form fields as (component id, blank value), in the order add_end receives them
+_END_FIELDS = [
+    ("fe-model", None), ("fe-ammo-type", "ammo"), ("fe-ammo", None), ("fe-cartridge", None),
+    ("fe-quantity", None), ("fe-dist-unit", "yd"), ("fe-distance", None),
+    ("fe-target", None), ("fe-shots-scored", None), ("fe-pts-stab", None), ("fe-support-hands", None),
+    ("fe-sight", None), ("fe-stance", None), ("fe-remarks", None),
+    ("fe-is-trap", False), ("fe-trap-dist-unit", "yd"), ("fe-trap-distance", None), ("fe-trap-style", None),
+    ("fe-trap-num-break", None), ("fe-trap-start-station", None),
+    ("fe-trap-choke1", None), ("fe-trap-choke2", None), ("fe-trap-by-station", False),
+    *[(f"fe-station-{i}", None) for i in range(1, 6)], ("fe-trap-remarks", None),
+    ("fe-is-skeet", False), ("fe-skeet-discipline", None), ("fe-skeet-num-break", None),
+    ("fe-skeet-choke1", None), ("fe-skeet-choke2", None), ("fe-skeet-low-gun-start", False),
+    ("fe-skeet-remarks", None),
+    ("fe-is-double-trap", False), ("fe-dt-dist-unit", "yd"), ("fe-dt-distance", None), ("fe-dt-style", None),
+    ("fe-dt-num-break", None), ("fe-dt-start-station", None),
+    ("fe-dt-choke1", None), ("fe-dt-choke2", None), ("fe-dt-by-station", False),
+    *[(f"fe-dt-station-{i}", None) for i in range(1, 6)], ("fe-dt-remarks", None),
+]
+
+_RESET_END = tuple(blank for _, blank in _END_FIELDS)
+_KEEP_END = (dash.no_update,) * len(_END_FIELDS)
+
+# Per-end results that are cleared after each end; every other field carries over to the next end
+_CLEAR_AFTER_END = {
+    "fe-remarks",
+    "fe-trap-num-break", *[f"fe-station-{i}" for i in range(1, 6)], "fe-trap-remarks",
+    "fe-skeet-num-break", "fe-skeet-remarks",
+    "fe-dt-num-break", *[f"fe-dt-station-{i}" for i in range(1, 6)], "fe-dt-remarks",
+}
+
+_END_FIELD_OUTPUTS = [Output(fid, "value", allow_duplicate=True) for fid, _ in _END_FIELDS]
 
 
 # ── Layout ──────────────────────────────────────────────────────────────────────
@@ -1096,6 +1113,7 @@ def toggle_date(is_today):
     Output("fv-visit-badge", "children"),
     Output("fe-ends-store", "data", allow_duplicate=True),
     Output("fe-ends-table", "children", allow_duplicate=True),
+    *_END_FIELD_OUTPUTS,
     Input("fv-create-btn", "n_clicks"),
     Input("fv-reset-btn", "n_clicks"),
     State("fv-is-today", "value"),
@@ -1107,7 +1125,7 @@ def toggle_date(is_today):
 )
 def handle_visit(_create, _reset, is_today, date_str, range_id, time_start, time_end):
     if ctx.triggered_id == "fv-reset-btn":
-        return False, None, None, None, [], render_ends_table([])
+        return (False, None, None, None, [], render_ends_table([])) + _RESET_END
 
     try:
         visit_date = (
@@ -1133,7 +1151,7 @@ def handle_visit(_create, _reset, is_today, date_str, range_id, time_start, time
             color="success",
             className="mb-2 fs-6",
         )
-        return True, visit.id, alert, badge, [], render_ends_table([])
+        return (True, visit.id, alert, badge, [], render_ends_table([])) + _RESET_END
 
     except Exception as e:
         postgres_session.rollback()
@@ -1141,7 +1159,7 @@ def handle_visit(_create, _reset, is_today, date_str, range_id, time_start, time
             False, None,
             dbc.Alert(f"Error creating visit: {e}", color="danger", dismissable=True),
             None, [], render_ends_table([]),
-        )
+        ) + _KEEP_END
 
 
 @callback(
@@ -1200,57 +1218,7 @@ def toggle_dt_stations(by_station):
     Output("fe-alert", "children"),
     Output("fe-ends-store", "data"),
     Output("fe-ends-table", "children"),
-    Output("fe-model", "value"),
-    Output("fe-ammo-type", "value"),
-    Output("fe-ammo", "value"),
-    Output("fe-cartridge", "value"),
-    Output("fe-quantity", "value"),
-    Output("fe-dist-unit", "value"),
-    Output("fe-distance", "value"),
-    Output("fe-target", "value"),
-    Output("fe-shots-scored", "value"),
-    Output("fe-pts-stab", "value"),
-    Output("fe-support-hands", "value"),
-    Output("fe-sight", "value"),
-    Output("fe-stance", "value"),
-    Output("fe-remarks", "value"),
-    Output("fe-is-trap", "value", allow_duplicate=True),
-    Output("fe-trap-dist-unit", "value"),
-    Output("fe-trap-distance", "value"),
-    Output("fe-trap-style", "value"),
-    Output("fe-trap-num-break", "value"),
-    Output("fe-trap-start-station", "value"),
-    Output("fe-trap-choke1", "value"),
-    Output("fe-trap-choke2", "value"),
-    Output("fe-trap-by-station", "value"),
-    Output("fe-station-1", "value"),
-    Output("fe-station-2", "value"),
-    Output("fe-station-3", "value"),
-    Output("fe-station-4", "value"),
-    Output("fe-station-5", "value"),
-    Output("fe-trap-remarks", "value"),
-    Output("fe-is-skeet", "value", allow_duplicate=True),
-    Output("fe-skeet-discipline", "value"),
-    Output("fe-skeet-num-break", "value"),
-    Output("fe-skeet-choke1", "value"),
-    Output("fe-skeet-choke2", "value"),
-    Output("fe-skeet-low-gun-start", "value"),
-    Output("fe-skeet-remarks", "value"),
-    Output("fe-is-double-trap", "value", allow_duplicate=True),
-    Output("fe-dt-dist-unit", "value"),
-    Output("fe-dt-distance", "value"),
-    Output("fe-dt-style", "value"),
-    Output("fe-dt-num-break", "value"),
-    Output("fe-dt-start-station", "value"),
-    Output("fe-dt-choke1", "value"),
-    Output("fe-dt-choke2", "value"),
-    Output("fe-dt-by-station", "value"),
-    Output("fe-dt-station-1", "value"),
-    Output("fe-dt-station-2", "value"),
-    Output("fe-dt-station-3", "value"),
-    Output("fe-dt-station-4", "value"),
-    Output("fe-dt-station-5", "value"),
-    Output("fe-dt-remarks", "value"),
+    *_END_FIELD_OUTPUTS,
     Input("fe-add-btn", "n_clicks"),
     State("fv-visit-id-store", "data"),
     State("fe-model", "value"),
@@ -1330,7 +1298,7 @@ def add_end(
             dbc.Alert(msg, color="warning"),
             ends_store,
             render_ends_table(ends_store),
-        ) + _RESET_END
+        ) + _KEEP_END
 
     if not visit_id:
         return warn("No visit created yet.")
@@ -1462,11 +1430,16 @@ def add_end(
             "Double Trap": "Yes" if is_double_trap else "No",
         }
         new_store = ends_store + [new_row]
+        # Pre-populate the next end with this end's setup
+        carried = tuple(
+            blank if fid in _CLEAR_AFTER_END else ctx.states[f"{fid}.value"]
+            for fid, blank in _END_FIELDS
+        )
         return (
             dbc.Alert(f"End #{end_obj.id} added.", color="success", dismissable=True),
             new_store,
             render_ends_table(new_store),
-        ) + _RESET_END
+        ) + carried
 
     except Exception as e:
         postgres_session.rollback()
@@ -1474,7 +1447,7 @@ def add_end(
             dbc.Alert(f"Error adding end: {e}", color="danger", dismissable=True),
             ends_store,
             render_ends_table(ends_store),
-        ) + _RESET_END
+        ) + _KEEP_END
 
 
 # ── Existing stat callbacks ──────────────────────────────────────────────────────
