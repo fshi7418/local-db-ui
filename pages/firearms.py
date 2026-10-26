@@ -373,6 +373,12 @@ SKEET_STYLE_OPTIONS = [
     {"label": "American (NSSA)", "value": "American"},
 ]
 
+# The target order shot; an American field can shoot the International sequence
+SKEET_SEQUENCE_OPTIONS = [
+    {"label": "International", "value": "International"},
+    {"label": "American", "value": "American"},
+]
+
 DOUBLE_TRAP_STYLE_OPTIONS = [
     {"label": "International", "value": "International"},
     {"label": "American (ATA)", "value": "American"},
@@ -388,7 +394,8 @@ _END_FIELDS = [
     ("fe-trap-num-break", None), ("fe-trap-start-station", None),
     ("fe-trap-choke1", None), ("fe-trap-choke2", None), ("fe-trap-by-station", False),
     *[(f"fe-station-{i}", None) for i in range(1, 6)], ("fe-trap-remarks", None),
-    ("fe-is-skeet", False), ("fe-skeet-discipline", None), ("fe-skeet-num-break", None),
+    ("fe-is-skeet", False), ("fe-skeet-discipline", None), ("fe-skeet-sequence", None),
+    ("fe-skeet-num-break", None),
     ("fe-skeet-choke1", None), ("fe-skeet-choke2", None), ("fe-skeet-low-gun-start", False),
     ("fe-skeet-remarks", None),
     ("fe-is-double-trap", False), ("fe-dt-dist-unit", "yd"), ("fe-dt-distance", None), ("fe-dt-style", None),
@@ -798,6 +805,14 @@ layout = dbc.Container(
                                     id="fe-skeet-discipline",
                                     options=SKEET_STYLE_OPTIONS,
                                     placeholder="Select discipline",
+                                ),
+                            ], md=3),
+                            dbc.Col([
+                                html.Label("Sequence (defaults to discipline)"),
+                                dcc.Dropdown(
+                                    id="fe-skeet-sequence",
+                                    options=SKEET_SEQUENCE_OPTIONS,
+                                    placeholder="Same as discipline",
                                 ),
                             ], md=3),
                             dbc.Col([
@@ -1252,6 +1267,7 @@ def toggle_dt_stations(by_station):
     State("fe-trap-remarks", "value"),
     State("fe-is-skeet", "value"),
     State("fe-skeet-discipline", "value"),
+    State("fe-skeet-sequence", "value"),
     State("fe-skeet-num-break", "value"),
     State("fe-skeet-choke1", "value"),
     State("fe-skeet-choke2", "value"),
@@ -1284,7 +1300,7 @@ def add_end(
     is_trap, trap_dist_unit, trap_distance, trap_style,
     trap_num_break, trap_start_station, trap_choke1, trap_choke2, trap_by_station,
     s1, s2, s3, s4, s5, trap_remarks,
-    is_skeet, skeet_discipline, skeet_num_break, skeet_choke1, skeet_choke2, skeet_low_gun_start,
+    is_skeet, skeet_discipline, skeet_sequence, skeet_num_break, skeet_choke1, skeet_choke2, skeet_low_gun_start,
     skeet_remarks,
     is_double_trap, dt_dist_unit, dt_distance, dt_style,
     dt_num_break, dt_start_station, dt_choke1, dt_choke2, dt_by_station,
@@ -1377,6 +1393,7 @@ def add_end(
             skeet_obj = SkeetRound(
                 firearm_end_id=end_obj.id,
                 discipline=skeet_discipline,
+                sequence=skeet_sequence or skeet_discipline,
                 num_break=int(skeet_num_break) if skeet_num_break is not None else None,
                 shotgun_choke_id1=int(skeet_choke1) if skeet_choke1 else None,
                 shotgun_choke_id2=int(skeet_choke2) if skeet_choke2 else None,

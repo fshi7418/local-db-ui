@@ -23,7 +23,7 @@ def get_skeet_rounds(discipline=None):
         session = Session()
         query = text("""
             select
-                sk.id, v.visit_date, e.id as end_id, sk.discipline, sk.low_gun_start, coalesce(m.short_name, m."name") as gun,
+                sk.id, v.visit_date, e.id as end_id, sk.discipline, coalesce(sk.sequence, sk.discipline) as sequence, sk.low_gun_start, coalesce(m.short_name, m."name") as gun,
                 coalesce(a.short_name, a."name") as ammunition, car.name as cartridge, car.shot_size as shot,
                 c1."name" as choke1, c1.constriction as constriction1,
                 c2."name" as choke2, c2.constriction as constriction2,
@@ -50,17 +50,18 @@ def get_skeet_rounds(discipline=None):
                 "Visit Date": row[1].strftime("%Y-%m-%d") if row[1] else None,
                 "End ID": row[2],
                 "Discipline": row[3],
-                "Low Gun Start": row[4],
-                "Gun": row[5],
-                "Ammunition": row[6],
-                "Cartridge": row[7],
-                "Shot": row[8],
-                "Choke 1": row[9],
-                "Constriction 1": row[10],
-                "Choke 2": row[11],
-                "Constriction 2": row[12],
-                "Breaks": row[13],
-                "Remarks": row[14],
+                "Sequence": row[4],
+                "Low Gun Start": row[5],
+                "Gun": row[6],
+                "Ammunition": row[7],
+                "Cartridge": row[8],
+                "Shot": row[9],
+                "Choke 1": row[10],
+                "Constriction 1": row[11],
+                "Choke 2": row[12],
+                "Constriction 2": row[13],
+                "Breaks": row[14],
+                "Remarks": row[15],
             })
         return data
     except Exception as e:
@@ -104,6 +105,7 @@ COLUMNS = [
     {"name": "Visit Date",   "id": "Visit Date",   "type": "text"},
     {"name": "End ID",       "id": "End ID",       "type": "numeric"},
     {"name": "Discipline",   "id": "Discipline",   "type": "text"},
+    {"name": "Sequence",     "id": "Sequence",     "type": "text"},
     {"name": "Low Gun Start", "id": "Low Gun Start", "type": "text"},
     {"name": "Gun",          "id": "Gun",          "type": "text"},
     {"name": "Breaks",       "id": "Breaks",       "type": "numeric"},
@@ -254,18 +256,22 @@ def load_skeet_shots(selected_rows, _discipline, _start_date, _end_date, table_d
     row = table_data[selected_rows[0]]
     round_id = row.get("ID")
     discipline = row.get("Discipline")
+    sequence_name = row.get("Sequence") or discipline
+    title = discipline or "—"
+    if sequence_name != discipline:
+        title += f" field, {sequence_name or '—'} sequence"
     header = html.H5(
-        f"Round {round_id} · {discipline or '—'} · {row.get('Visit Date') or '—'}",
+        f"Round {round_id} · {title} · {row.get('Visit Date') or '—'}",
         className="mt-3 mb-2",
     )
 
-    sequence = get_sequence(discipline)
+    sequence = get_sequence(sequence_name)
     if sequence is None:
         return (
             {"display": "block"},
             header,
             html.P(
-                f"No target sequence is defined for discipline {discipline!r}.",
+                f"No target sequence is defined for {sequence_name!r}.",
                 className="text-muted",
             ),
         )
@@ -282,7 +288,7 @@ def load_skeet_shots(selected_rows, _discipline, _start_date, _end_date, table_d
             ),
         )
 
-    # shot_order is the 1-based position in the discipline's target sequence
+    # shot_order is the 1-based position in the round's target sequence
     cells = {}
     for shot in shots:
         position = shot["shot_order"]

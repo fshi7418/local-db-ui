@@ -25,7 +25,8 @@ def get_round_info(round_id):
     try:
         session = Session()
         row = session.execute(text("""
-            select sk.id, sk.discipline, sk.num_break, v.visit_date, coalesce(m.short_name, m."name") as gun
+            select sk.id, sk.discipline, sk.num_break, v.visit_date, coalesce(m.short_name, m."name") as gun,
+                   coalesce(sk.sequence, sk.discipline) as sequence
             from skeet_round sk
             join firearm_end e on sk.firearm_end_id = e.id
             join firearm_visit v on e.firearm_visit_id = v.id
@@ -50,6 +51,7 @@ def get_round_info(round_id):
             "num_break": row[2],
             "visit_date": row[3].strftime("%Y-%m-%d") if row[3] else None,
             "gun": row[4],
+            "sequence": row[5],
             "existing_shots": len(shots),
             # position in the target sequence -> 1 (hit) / 0 (miss)
             "stored": {s[0]: 1 if s[1] else 0 for s in shots},
@@ -171,12 +173,12 @@ def load_round(_, round_id):
             None, False, None, None, [],
         )
 
-    sequence = get_sequence(info["discipline"])
+    sequence = get_sequence(info["sequence"])
     if sequence is None:
         return (
             dbc.Alert(
-                f"Round {info['id']} has discipline {info['discipline']!r}, which has "
-                f"no defined target sequence. Supported: American, International.",
+                f"Round {info['id']} has sequence {info['sequence']!r}, which has "
+                f"no defined target order. Supported: American, International.",
                 color="danger",
             ),
             None, False, None, None, [],
@@ -184,6 +186,7 @@ def load_round(_, round_id):
 
     details = [
         f"Discipline: {info['discipline']}",
+        f"Sequence: {info['sequence']}",
         f"Visit: {info['visit_date']}",
         f"Gun: {info['gun'] or '—'}",
         f"Recorded breaks: {info['num_break'] if info['num_break'] is not None else '—'}",
@@ -203,7 +206,7 @@ def load_round(_, round_id):
             )
         children.append(html.Div(note, className="mt-2 fw-bold"))
 
-    store = {"round_id": info["id"], "discipline": info["discipline"]}
+    store = {"round_id": info["id"], "sequence": info["sequence"]}
     return (
         dbc.Alert(children, color=colour),
         build_table(sequence, info["stored"]),
@@ -228,9 +231,9 @@ def save_shots(_, table_data, store, overwrite):
         return dbc.Alert("Load a round first.", color="warning"), no_update
 
     round_id = store["round_id"]
-    sequence = get_sequence(store["discipline"])
+    sequence = get_sequence(store["sequence"])
     if sequence is None:
-        return dbc.Alert("Unsupported discipline.", color="danger"), no_update
+        return dbc.Alert("Unsupported sequence.", color="danger"), no_update
 
     row = table_data[0]
 
@@ -321,6 +324,7 @@ def save_shots(_, table_data, store, overwrite):
     refreshed = get_round_info(round_id)
     details = " · ".join([
         f"Discipline: {refreshed['discipline']}",
+        f"Sequence: {refreshed['sequence']}",
         f"Visit: {refreshed['visit_date']}",
         f"Gun: {refreshed['gun'] or '—'}",
         f"Recorded breaks: {refreshed['num_break'] if refreshed['num_break'] is not None else '—'}",
