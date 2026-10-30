@@ -10,8 +10,8 @@ import sys
 # Import from local-db backend
 from sqlalchemy import text, func
 from models import postgres_session
-from models.transactions import ExpenseTransactions, ExpenseBudget
-from transaction_configs import ExpenseCat, ExpenseSource
+from models.transactions import ExpenseTransactions, ExpenseBudget, ExpenseSource
+from transaction_configs import ExpenseCat
 from script_modules.add_transaction import add_expense
 
 dash.register_page(__name__, path="/transactions")
@@ -21,10 +21,17 @@ def get_categories():
     """Return list of (display_name, enum_name) tuples"""
     return [(cat.value, cat.name) for cat in ExpenseCat]
 
-# Helper: get list of valid sources
-def get_sources():
-    """Return list of (display_name, enum_name) tuples"""
-    return [(src.value, src.name) for src in ExpenseSource]
+# Helper: dropdown options for every row in expense_source, valued by id
+def get_source_options():
+    try:
+        from models import Session
+        session = Session()
+        rows = session.query(ExpenseSource).order_by(ExpenseSource.source_name).all()
+        session.close()
+        return [{"label": r.source_name, "value": r.id} for r in rows]
+    except Exception as e:
+        print(f"Error querying sources: {e}")
+        return []
 
 # Helper: get active budgets for a given year
 def get_active_budgets(year):
@@ -137,10 +144,11 @@ def get_transactions_detail(start_date, end_date, category, subcategory):
                 SELECT
                     t.transaction_date AS date,
                     t.amount,
-                    t.expense_source AS source,
+                    es.source_name AS source,
                     t.expense_comment AS comment
                 FROM expense_transactions t
                 LEFT JOIN expense_budget b ON t.expense_budget_id = b.id
+                LEFT JOIN expense_source es ON t.expense_source_id = es.id
                 WHERE t.category = :category
                   AND COALESCE(b.subcategory, '') = :subcategory{where}
                 ORDER BY t.transaction_date DESC, t.id DESC
@@ -152,7 +160,7 @@ def get_transactions_detail(start_date, end_date, category, subcategory):
             {
                 "Date": r.date.strftime("%Y-%m-%d"),
                 "Amount": r.amount,
-                "Source": r.source or "",
+                "Expense Source": r.source or "",
                 "Comment": r.comment or "",
             }
             for r in rows
@@ -188,14 +196,15 @@ def get_subcategories_for_category(category_enum_name):
         return []
 
 
-# Helper: query transactions with optional date range, category, and subcategory filters
-def get_filtered_transactions(start_date=None, end_date=None, category=None, subcategory=None):
+# Helper: query transactions with optional date range, category, subcategory, and source filters
+def get_filtered_transactions(start_date=None, end_date=None, category=None, subcategory=None, source_id=None):
     try:
         from models import Session
         session = Session()
         query = (
-            session.query(ExpenseTransactions, ExpenseBudget)
+            session.query(ExpenseTransactions, ExpenseBudget, ExpenseSource.source_name)
             .outerjoin(ExpenseBudget, ExpenseTransactions.expense_budget_id == ExpenseBudget.id)
+            .outerjoin(ExpenseSource, ExpenseTransactions.expense_source_id == ExpenseSource.id)
         )
         if start_date:
             query = query.filter(ExpenseTransactions.transaction_date >= start_date)
@@ -208,6 +217,8 @@ def get_filtered_transactions(start_date=None, end_date=None, category=None, sub
                 query = query.filter(ExpenseTransactions.category == category_obj.value)
         if subcategory is not None:
             query = query.filter(func.coalesce(ExpenseBudget.subcategory, "") == subcategory)
+        if source_id:
+            query = query.filter(ExpenseTransactions.expense_source_id == source_id)
         rows = query.order_by(
             ExpenseTransactions.transaction_date.desc(),
             ExpenseTransactions.id.desc()
@@ -215,7 +226,7 @@ def get_filtered_transactions(start_date=None, end_date=None, category=None, sub
         session.close()
 
         data = []
-        for row, budget in rows:
+        for row, budget, source_name in rows:
             budget_label = f"{budget.category} ({budget.subcategory})" if budget else ""
             data.append({
                 "ID": row.id,
@@ -223,7 +234,7 @@ def get_filtered_transactions(start_date=None, end_date=None, category=None, sub
                 "Amount": row.amount,
                 "Category": row.category,
                 "Sub-Category": budget_label,
-                "Source": row.expense_source,
+                "Expense Source": source_name or "",
                 "Comment": row.expense_comment or "",
             })
         return data
@@ -298,10 +309,10 @@ layout = dbc.Container(
                                 ),
                             ], md=6),
                             dbc.Col([
-                                html.Label("Source"),
+                                html.Label("Expense Source"),
                                 dcc.Dropdown(
                                     id="trans-source",
-                                    options=[{"label": display, "value": enum_name} for display, enum_name in get_sources()],
+                                    options=get_source_options(),
                                     placeholder="Select source",
                                 ),
                             ], md=6),
@@ -440,7 +451,7 @@ layout = dbc.Container(
                     columns=[
                         {"name": "Date", "id": "Date"},
                         {"name": "Amount", "id": "Amount", "type": "numeric", "format": {"specifier": "$.2f"}},
-                        {"name": "Source", "id": "Source"},
+                        {"name": "Expense Source", "id": "Expense Source"},
                         {"name": "Comment", "id": "Comment"},
                     ],
                     data=[],
@@ -476,7 +487,7 @@ layout = dbc.Container(
                     display_format="YYYY-MM-DD",
                     clearable=True,
                 ),
-            ], md=4),
+            ], md=3),
             dbc.Col([
                 html.Label("Filter by Category"),
                 dcc.Dropdown(
@@ -485,7 +496,7 @@ layout = dbc.Container(
                     placeholder="All categories",
                     clearable=True,
                 ),
-            ], md=4),
+            ], md=3),
             dbc.Col([
                 html.Label("Filter by Sub-Category"),
                 dcc.Dropdown(
@@ -495,7 +506,15 @@ layout = dbc.Container(
                     clearable=True,
                     disabled=True,
                 ),
-            ], md=4),
+            ], md=3),
+            dbc.Col([
+                html.Label("Filter by Expense Source"),
+                dcc.Dropdown(
+                    id="trans-filter-source",
+                    placeholder="All sources",
+                    clearable=True,
+                ),
+            ], md=3),
         ], className="mb-3"),
 
         # Recent transactions table
@@ -573,7 +592,7 @@ def submit_transaction(n_clicks, is_today, date_str, amount, category, source, b
             e_date=date,
             e_amount=float(amount),
             e_category_str=category,
-            e_source_str=source,
+            e_source_id=source,
             e_comment=comment or "",
             e_budget_id=budget_id or "",
         )
@@ -662,6 +681,15 @@ def populate_subcategory_filter(category):
     return options, None, False
 
 
+# Callback: list every expense_source row in the source filter
+@callback(
+    Output("trans-filter-source", "options"),
+    Input("trans-refresh-trigger", "data"),
+)
+def populate_source_filter(_trigger):
+    return get_source_options()
+
+
 # Callback: filter transactions table
 @callback(
     Output("trans-table", "children"),
@@ -669,11 +697,13 @@ def populate_subcategory_filter(category):
     Input("trans-filter-range", "end_date"),
     Input("trans-filter-category", "value"),
     Input("trans-filter-subcategory", "value"),
+    Input("trans-filter-source", "value"),
     Input("trans-refresh-trigger", "data"),
 )
-def filter_table(start_date, end_date, category, subcategory, _trigger):
+def filter_table(start_date, end_date, category, subcategory, source_id, _trigger):
     data = get_filtered_transactions(
         start_date=start_date, end_date=end_date, category=category, subcategory=subcategory,
+        source_id=source_id,
     )
     if not data:
         return html.P("No transactions found.", className="text-muted")
@@ -684,7 +714,7 @@ def filter_table(start_date, end_date, category, subcategory, _trigger):
         {"name": "Amount", "id": "Amount", "type": "numeric", "format": {"specifier": "$.2f"}},
         {"name": "Category", "id": "Category", "type": "text"},
         {"name": "Sub-Category", "id": "Sub-Category", "type": "text"},
-        {"name": "Source", "id": "Source", "type": "text"},
+        {"name": "Expense Source", "id": "Expense Source", "type": "text"},
         {"name": "Comment", "id": "Comment", "type": "text"},
     ]
     return DataTable(
@@ -692,7 +722,7 @@ def filter_table(start_date, end_date, category, subcategory, _trigger):
         data=df.to_dict("records"),
         sort_action="native",
         page_action="native",
-        page_size=30,
+        page_size=20,
         style_cell={"textAlign": "left", "padding": "10px"},
         style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
         style_data_conditional=[
