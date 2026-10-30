@@ -8,7 +8,7 @@ from datetime import datetime
 import sys
 
 # Import from local-db backend
-from sqlalchemy import text
+from sqlalchemy import text, func
 from models import postgres_session
 from models.transactions import ExpenseTransactions, ExpenseBudget
 from transaction_configs import ExpenseCat, ExpenseSource
@@ -67,34 +67,33 @@ def build_spending_chart():
         return px.line(title="Spending by Category Over Time")
 
 
-# Helper: get distinct months from transactions (for filter dropdown)
-def get_available_months():
+# Helper: SQL conditions for an optional, inclusive date range on t.transaction_date
+def date_range_clause(start_date, end_date):
+    clauses, params = [], {}
+    if start_date:
+        clauses.append("t.transaction_date >= :start_date")
+        params["start_date"] = start_date
+    if end_date:
+        clauses.append("t.transaction_date <= :end_date")
+        params["end_date"] = end_date
+    return "".join(f" AND {c}" for c in clauses), params
+
+
+# Helper: sum amount by category within a date range
+def get_category_summary(start_date, end_date):
     try:
         from models import Session
         session = Session()
-        rows = session.query(ExpenseTransactions.transaction_date).all()
-        session.close()
-        months = sorted({r.transaction_date.strftime("%Y-%m") for r in rows}, reverse=True)
-        return [{"label": datetime.strptime(m, "%Y-%m").strftime("%B %Y"), "value": m} for m in months]
-    except Exception as e:
-        print(f"Error querying months: {e}")
-        return []
-
-
-# Helper: sum amount by category for a given month
-def get_category_summary(month):
-    try:
-        from models import Session
-        session = Session()
+        where, params = date_range_clause(start_date, end_date)
         rows = session.execute(
-            text("""
+            text(f"""
                 SELECT t.category, SUM(t.amount) AS amount
                 FROM expense_transactions t
-                WHERE to_char(t.transaction_date, 'YYYY-MM') = :month
+                WHERE 1 = 1{where}
                 GROUP BY t.category
                 ORDER BY t.category
             """),
-            {"month": month},
+            params,
         ).fetchall()
         session.close()
         return [{"Category": r.category, "Amount": r.amount} for r in rows]
@@ -103,22 +102,22 @@ def get_category_summary(month):
         return []
 
 
-# Helper: sum amount by subcategory for a given month + category
-def get_subcategory_summary(month, category):
+# Helper: sum amount by subcategory within a date range + category
+def get_subcategory_summary(start_date, end_date, category):
     try:
         from models import Session
         session = Session()
+        where, params = date_range_clause(start_date, end_date)
         rows = session.execute(
-            text("""
+            text(f"""
                 SELECT COALESCE(b.subcategory, '') AS subcategory, SUM(t.amount) AS amount
                 FROM expense_transactions t
                 LEFT JOIN expense_budget b ON t.expense_budget_id = b.id
-                WHERE to_char(t.transaction_date, 'YYYY-MM') = :month
-                  AND t.category = :category
+                WHERE t.category = :category{where}
                 GROUP BY b.subcategory
                 ORDER BY b.subcategory
             """),
-            {"month": month, "category": category},
+            {"category": category, **params},
         ).fetchall()
         session.close()
         return [{"Sub-Category": r.subcategory, "Amount": r.amount} for r in rows]
@@ -127,13 +126,14 @@ def get_subcategory_summary(month, category):
         return []
 
 
-# Helper: individual transactions for a given month + category + subcategory
-def get_transactions_detail(month, category, subcategory):
+# Helper: individual transactions within a date range + category + subcategory
+def get_transactions_detail(start_date, end_date, category, subcategory):
     try:
         from models import Session
         session = Session()
+        where, params = date_range_clause(start_date, end_date)
         rows = session.execute(
-            text("""
+            text(f"""
                 SELECT
                     t.transaction_date AS date,
                     t.amount,
@@ -141,12 +141,11 @@ def get_transactions_detail(month, category, subcategory):
                     t.expense_comment AS comment
                 FROM expense_transactions t
                 LEFT JOIN expense_budget b ON t.expense_budget_id = b.id
-                WHERE to_char(t.transaction_date, 'YYYY-MM') = :month
-                  AND t.category = :category
-                  AND COALESCE(b.subcategory, '') = :subcategory
+                WHERE t.category = :category
+                  AND COALESCE(b.subcategory, '') = :subcategory{where}
                 ORDER BY t.transaction_date DESC, t.id DESC
             """),
-            {"month": month, "category": category, "subcategory": subcategory},
+            {"category": category, "subcategory": subcategory, **params},
         ).fetchall()
         session.close()
         return [
@@ -189,41 +188,34 @@ def get_subcategories_for_category(category_enum_name):
         return []
 
 
-# Helper: query transactions with optional month list, category, and subcategory filters
-def get_filtered_transactions(months=None, category=None, subcategory=None):
+# Helper: query transactions with optional date range, category, and subcategory filters
+def get_filtered_transactions(start_date=None, end_date=None, category=None, subcategory=None):
     try:
         from models import Session
         session = Session()
-        rows = (
+        query = (
             session.query(ExpenseTransactions, ExpenseBudget)
             .outerjoin(ExpenseBudget, ExpenseTransactions.expense_budget_id == ExpenseBudget.id)
-            .order_by(
-                ExpenseTransactions.transaction_date.desc(),
-                ExpenseTransactions.id.desc()
-            )
-            .limit(1000)
-            .all()
         )
-        session.close()
-
-        # Convert category enum name to stored display value
-        category_value = None
+        if start_date:
+            query = query.filter(ExpenseTransactions.transaction_date >= start_date)
+        if end_date:
+            query = query.filter(ExpenseTransactions.transaction_date <= end_date)
         if category:
-            try:
-                category_obj = getattr(ExpenseCat, category)
-                category_value = category_obj.value
-            except AttributeError:
-                pass
+            # Convert category enum name to stored display value
+            category_obj = getattr(ExpenseCat, category, None)
+            if category_obj is not None:
+                query = query.filter(ExpenseTransactions.category == category_obj.value)
+        if subcategory is not None:
+            query = query.filter(func.coalesce(ExpenseBudget.subcategory, "") == subcategory)
+        rows = query.order_by(
+            ExpenseTransactions.transaction_date.desc(),
+            ExpenseTransactions.id.desc()
+        ).all()
+        session.close()
 
         data = []
         for row, budget in rows:
-            if months and row.transaction_date.strftime("%Y-%m") not in months:
-                continue
-            if category_value and row.category != category_value:
-                continue
-            budget_subcategory = budget.subcategory if budget else ""
-            if subcategory is not None and budget_subcategory != subcategory:
-                continue
             budget_label = f"{budget.category} ({budget.subcategory})" if budget else ""
             data.append({
                 "ID": row.id,
@@ -368,24 +360,26 @@ layout = dbc.Container(
             className="mb-3",
         ),
 
-        # Monthly drill-down: category → subcategory → transactions
+        # Date-range drill-down: category → subcategory → transactions
         dbc.Row(
             dbc.Col([
-                html.H4("Monthly Summary"),
+                html.H4("Summary"),
                 dbc.Row(
                     dbc.Col([
-                        html.Label("Select Month"),
-                        dcc.Dropdown(
-                            id="trans-summary-month",
-                            options=get_available_months(),
-                            placeholder="Select a month",
+                        html.Label("Date Range"),
+                        html.Br(),
+                        dcc.DatePickerRange(
+                            id="trans-summary-range",
+                            start_date=datetime.now().date().replace(day=1),
+                            end_date=datetime.now().date(),
+                            display_format="YYYY-MM-DD",
                             clearable=True,
                         ),
-                    ], md=4),
+                    ], md=6),
                     className="mb-3",
                 ),
                 html.P(
-                    "Select a month to see the summary.",
+                    "No transactions in this date range.",
                     id="trans-cat-placeholder",
                     className="text-muted",
                 ),
@@ -475,13 +469,12 @@ layout = dbc.Container(
         # Transaction table filters
         dbc.Row([
             dbc.Col([
-                html.Label("Filter by Month"),
-                dcc.Dropdown(
-                    id="trans-filter-month",
-                    options=get_available_months(),
-                    placeholder="All months",
+                html.Label("Filter by Date Range"),
+                html.Br(),
+                dcc.DatePickerRange(
+                    id="trans-filter-range",
+                    display_format="YYYY-MM-DD",
                     clearable=True,
-                    multi=True,
                 ),
             ], md=4),
             dbc.Col([
@@ -598,13 +591,12 @@ def submit_transaction(n_clicks, is_today, date_str, amount, category, source, b
     Output("trans-cat-datatable", "data"),
     Output("trans-cat-datatable", "selected_rows"),
     Output("trans-cat-placeholder", "style"),
-    Input("trans-summary-month", "value"),
+    Input("trans-summary-range", "start_date"),
+    Input("trans-summary-range", "end_date"),
     Input("trans-refresh-trigger", "data"),
 )
-def update_cat_table(month, _trigger):
-    if not month:
-        return [], [], {"display": "block"}
-    data = get_category_summary(month)
+def update_cat_table(start_date, end_date, _trigger):
+    data = get_category_summary(start_date, end_date)
     return data, [], {"display": "none"} if data else {"display": "block"}
 
 
@@ -616,13 +608,14 @@ def update_cat_table(month, _trigger):
     Output("trans-subcat-header", "children"),
     Input("trans-cat-datatable", "selected_rows"),
     State("trans-cat-datatable", "data"),
-    State("trans-summary-month", "value"),
+    State("trans-summary-range", "start_date"),
+    State("trans-summary-range", "end_date"),
 )
-def update_subcat_table(selected_rows, cat_data, month):
-    if not selected_rows or not cat_data or not month:
+def update_subcat_table(selected_rows, cat_data, start_date, end_date):
+    if not selected_rows or not cat_data:
         return [], [], {"display": "none"}, ""
     category = cat_data[selected_rows[0]]["Category"]
-    data = get_subcategory_summary(month, category)
+    data = get_subcategory_summary(start_date, end_date, category)
     if not data:
         return [], [], {"display": "none"}, ""
     header = html.H5(f"Breakdown: {category}", className="mt-3 mb-2")
@@ -638,14 +631,15 @@ def update_subcat_table(selected_rows, cat_data, month):
     State("trans-subcat-datatable", "data"),
     State("trans-cat-datatable", "selected_rows"),
     State("trans-cat-datatable", "data"),
-    State("trans-summary-month", "value"),
+    State("trans-summary-range", "start_date"),
+    State("trans-summary-range", "end_date"),
 )
-def update_detail_table(subcat_selected, subcat_data, cat_selected, cat_data, month):
-    if not subcat_selected or not subcat_data or not cat_selected or not cat_data or not month:
+def update_detail_table(subcat_selected, subcat_data, cat_selected, cat_data, start_date, end_date):
+    if not subcat_selected or not subcat_data or not cat_selected or not cat_data:
         return [], {"display": "none"}, ""
     category = cat_data[cat_selected[0]]["Category"]
     subcategory = subcat_data[subcat_selected[0]]["Sub-Category"]
-    data = get_transactions_detail(month, category, subcategory)
+    data = get_transactions_detail(start_date, end_date, category, subcategory)
     if not data:
         return [], {"display": "none"}, ""
     label = subcategory or "(no subcategory)"
@@ -671,13 +665,16 @@ def populate_subcategory_filter(category):
 # Callback: filter transactions table
 @callback(
     Output("trans-table", "children"),
-    Input("trans-filter-month", "value"),
+    Input("trans-filter-range", "start_date"),
+    Input("trans-filter-range", "end_date"),
     Input("trans-filter-category", "value"),
     Input("trans-filter-subcategory", "value"),
     Input("trans-refresh-trigger", "data"),
 )
-def filter_table(months, category, subcategory, _trigger):
-    data = get_filtered_transactions(months=months, category=category, subcategory=subcategory)
+def filter_table(start_date, end_date, category, subcategory, _trigger):
+    data = get_filtered_transactions(
+        start_date=start_date, end_date=end_date, category=category, subcategory=subcategory,
+    )
     if not data:
         return html.P("No transactions found.", className="text-muted")
     df = pd.DataFrame(data)
@@ -694,6 +691,8 @@ def filter_table(months, category, subcategory, _trigger):
         columns=columns,
         data=df.to_dict("records"),
         sort_action="native",
+        page_action="native",
+        page_size=30,
         style_cell={"textAlign": "left", "padding": "10px"},
         style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
         style_data_conditional=[
