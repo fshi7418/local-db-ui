@@ -109,12 +109,69 @@ def get_category_summary(start_date, end_date):
         return []
 
 
-# Helper: sum amount by subcategory within a date range + category
-def get_subcategory_summary(start_date, end_date, category):
+# Helper: sum amount by expense source within a date range
+def get_source_summary(start_date, end_date):
     try:
         from models import Session
         session = Session()
         where, params = date_range_clause(start_date, end_date)
+        rows = session.execute(
+            text(f"""
+                SELECT es.id, es.source_name, SUM(t.amount) AS amount
+                FROM expense_transactions t
+                JOIN expense_source es ON t.expense_source_id = es.id
+                WHERE 1 = 1{where}
+                GROUP BY es.id, es.source_name
+                ORDER BY es.source_name
+            """),
+            params,
+        ).fetchall()
+        session.close()
+        return [{"Expense Source": r.source_name, "Amount": r.amount, "source_id": r.id} for r in rows]
+    except Exception as e:
+        print(f"Error querying source summary: {e}")
+        return []
+
+
+# Helper: sum amount by category within a date range for one expense source
+def get_source_category_summary(start_date, end_date, source_id):
+    try:
+        from models import Session
+        session = Session()
+        where, params = date_range_clause(start_date, end_date)
+        rows = session.execute(
+            text(f"""
+                SELECT t.category, SUM(t.amount) AS amount
+                FROM expense_transactions t
+                WHERE t.expense_source_id = :source_id{where}
+                GROUP BY t.category
+                ORDER BY t.category
+            """),
+            {"source_id": source_id, **params},
+        ).fetchall()
+        session.close()
+        return [{"Category": r.category, "Amount": r.amount} for r in rows]
+    except Exception as e:
+        print(f"Error querying source category summary: {e}")
+        return []
+
+
+# Helper: optional SQL condition restricting t to one expense source
+def source_clause(source_id):
+    if source_id is None:
+        return "", {}
+    return " AND t.expense_source_id = :source_id", {"source_id": source_id}
+
+
+# Helper: sum amount by subcategory within a date range + category (+ optional source)
+def get_subcategory_summary(start_date, end_date, category, source_id=None):
+    try:
+        from models import Session
+        session = Session()
+        where, params = date_range_clause(start_date, end_date)
+        source_where, source_params = source_clause(source_id)
+        where += source_where
+        params.update(source_params)
         rows = session.execute(
             text(f"""
                 SELECT COALESCE(b.subcategory, '') AS subcategory, SUM(t.amount) AS amount
@@ -133,12 +190,15 @@ def get_subcategory_summary(start_date, end_date, category):
         return []
 
 
-# Helper: individual transactions within a date range + category + subcategory
-def get_transactions_detail(start_date, end_date, category, subcategory):
+# Helper: individual transactions within a date range + category + subcategory (+ optional source)
+def get_transactions_detail(start_date, end_date, category, subcategory, source_id=None):
     try:
         from models import Session
         session = Session()
         where, params = date_range_clause(start_date, end_date)
+        source_where, source_params = source_clause(source_id)
+        where += source_where
+        params.update(source_params)
         rows = session.execute(
             text(f"""
                 SELECT
@@ -241,6 +301,66 @@ def get_filtered_transactions(start_date=None, end_date=None, category=None, sub
     except Exception as e:
         print(f"Error querying transactions: {e}")
         return []
+
+# Layout helpers for the summary drill-downs
+SELECTED_ROW_STYLE = {"if": {"state": "selected"}, "backgroundColor": "rgba(0, 116, 217, 0.1)", "border": "1px solid #0074D9"}
+
+
+def summary_table(table_id, label_column):
+    """A single-select (label, amount) table; selecting a row drills down."""
+    return DataTable(
+        id=table_id,
+        columns=[
+            {"name": label_column, "id": label_column},
+            {"name": "Amount", "id": "Amount", "type": "numeric", "format": {"specifier": "$.2f"}},
+        ],
+        data=[],
+        row_selectable="single",
+        selected_rows=[],
+        sort_action="native",
+        style_cell={"textAlign": "left", "padding": "10px"},
+        style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
+        style_data_conditional=[
+            {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"},
+            SELECTED_ROW_STYLE,
+        ],
+    )
+
+
+def detail_table(table_id, with_source):
+    columns = [
+        {"name": "Date", "id": "Date"},
+        {"name": "Amount", "id": "Amount", "type": "numeric", "format": {"specifier": "$.2f"}},
+    ]
+    if with_source:
+        columns.append({"name": "Expense Source", "id": "Expense Source"})
+    columns.append({"name": "Comment", "id": "Comment"})
+    return DataTable(
+        id=table_id,
+        columns=columns,
+        data=[],
+        sort_action="native",
+        style_table={"overflowX": "auto"},
+        style_cell={"textAlign": "left", "padding": "10px"},
+        style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
+        style_data_conditional=[
+            {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"},
+        ],
+    )
+
+
+def drilldown_block(prefix, table):
+    """A header + table that stays hidden until its parent row is selected."""
+    return html.Div(
+        [html.Div(id=f"{prefix}-header"), table],
+        id=f"{prefix}-row",
+        style={"display": "none"},
+    )
+
+
+HIDDEN = {"display": "none"}
+SHOWN = {"display": "block"}
+
 
 # Layout
 layout = dbc.Container(
@@ -371,7 +491,8 @@ layout = dbc.Container(
             className="mb-3",
         ),
 
-        # Date-range drill-down: category → subcategory → transactions
+        # Date-range drill-downs: category → subcategory → transactions on the left,
+        # expense source → category → subcategory → transactions on the right
         dbc.Row(
             dbc.Col([
                 html.H4("Summary"),
@@ -394,77 +515,20 @@ layout = dbc.Container(
                     id="trans-cat-placeholder",
                     className="text-muted",
                 ),
-                DataTable(
-                    id="trans-cat-datatable",
-                    columns=[
-                        {"name": "Category", "id": "Category"},
-                        {"name": "Amount", "id": "Amount", "type": "numeric", "format": {"specifier": "$.2f"}},
-                    ],
-                    data=[],
-                    row_selectable="single",
-                    selected_rows=[],
-                    sort_action="native",
-                    style_cell={"textAlign": "left", "padding": "10px"},
-                    style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
-                    style_data_conditional=[
-                        {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"},
-                        {"if": {"state": "selected"}, "backgroundColor": "rgba(0, 116, 217, 0.1)", "border": "1px solid #0074D9"},
-                    ],
-                ),
+                dbc.Row([
+                    dbc.Col([
+                        summary_table("trans-cat-datatable", "Category"),
+                        drilldown_block("trans-subcat", summary_table("trans-subcat-datatable", "Sub-Category")),
+                        drilldown_block("trans-detail", detail_table("trans-detail-datatable", with_source=True)),
+                    ], md=6),
+                    dbc.Col([
+                        summary_table("trans-source-datatable", "Expense Source"),
+                        drilldown_block("trans-src-cat", summary_table("trans-src-cat-datatable", "Category")),
+                        drilldown_block("trans-src-subcat", summary_table("trans-src-subcat-datatable", "Sub-Category")),
+                        drilldown_block("trans-src-detail", detail_table("trans-src-detail-datatable", with_source=False)),
+                    ], md=6),
+                ]),
             ], width=12),
-            className="mb-2",
-        ),
-
-        # Subcategory breakdown (shown when a category row is selected)
-        dbc.Row(
-            dbc.Col([
-                html.Div(id="trans-subcat-header"),
-                DataTable(
-                    id="trans-subcat-datatable",
-                    columns=[
-                        {"name": "Sub-Category", "id": "Sub-Category"},
-                        {"name": "Amount", "id": "Amount", "type": "numeric", "format": {"specifier": "$.2f"}},
-                    ],
-                    data=[],
-                    row_selectable="single",
-                    selected_rows=[],
-                    sort_action="native",
-                    style_cell={"textAlign": "left", "padding": "10px"},
-                    style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
-                    style_data_conditional=[
-                        {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"},
-                        {"if": {"state": "selected"}, "backgroundColor": "rgba(0, 116, 217, 0.1)", "border": "1px solid #0074D9"},
-                    ],
-                ),
-            ], width=12),
-            id="trans-subcat-row",
-            style={"display": "none"},
-            className="mb-2",
-        ),
-
-        # Transaction detail (shown when a subcategory row is selected)
-        dbc.Row(
-            dbc.Col([
-                html.Div(id="trans-detail-header"),
-                DataTable(
-                    id="trans-detail-datatable",
-                    columns=[
-                        {"name": "Date", "id": "Date"},
-                        {"name": "Amount", "id": "Amount", "type": "numeric", "format": {"specifier": "$.2f"}},
-                        {"name": "Expense Source", "id": "Expense Source"},
-                        {"name": "Comment", "id": "Comment"},
-                    ],
-                    data=[],
-                    sort_action="native",
-                    style_cell={"textAlign": "left", "padding": "10px"},
-                    style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
-                    style_data_conditional=[
-                        {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"},
-                    ],
-                ),
-            ], width=12),
-            id="trans-detail-row",
-            style={"display": "none"},
             className="mb-4",
         ),
 
@@ -605,18 +669,21 @@ def submit_transaction(n_clicks, is_today, date_str, amount, category, source, b
         return alert, build_spending_chart(), trigger, amount, category, source, budget_id, comment
 
 
-# Callback: populate category summary table
+# Callback: populate category and expense source summary tables
 @callback(
     Output("trans-cat-datatable", "data"),
     Output("trans-cat-datatable", "selected_rows"),
     Output("trans-cat-placeholder", "style"),
+    Output("trans-source-datatable", "data"),
+    Output("trans-source-datatable", "selected_rows"),
     Input("trans-summary-range", "start_date"),
     Input("trans-summary-range", "end_date"),
     Input("trans-refresh-trigger", "data"),
 )
 def update_cat_table(start_date, end_date, _trigger):
     data = get_category_summary(start_date, end_date)
-    return data, [], {"display": "none"} if data else {"display": "block"}
+    placeholder = HIDDEN if data else SHOWN
+    return data, [], placeholder, get_source_summary(start_date, end_date), []
 
 
 # Callback: drill down into subcategories when a category row is selected
@@ -664,6 +731,85 @@ def update_detail_table(subcat_selected, subcat_data, cat_selected, cat_data, st
     label = subcategory or "(no subcategory)"
     header = html.H5(f"Transactions: {category} › {label}", className="mt-3 mb-2")
     return data, {"display": "block"}, header
+
+
+# Callback: drill down into categories when an expense source row is selected
+@callback(
+    Output("trans-src-cat-datatable", "data"),
+    Output("trans-src-cat-datatable", "selected_rows"),
+    Output("trans-src-cat-row", "style"),
+    Output("trans-src-cat-header", "children"),
+    Input("trans-source-datatable", "selected_rows"),
+    State("trans-source-datatable", "data"),
+    State("trans-summary-range", "start_date"),
+    State("trans-summary-range", "end_date"),
+)
+def update_src_cat_table(selected_rows, source_data, start_date, end_date):
+    if not selected_rows or not source_data:
+        return [], [], HIDDEN, ""
+    source = source_data[selected_rows[0]]
+    data = get_source_category_summary(start_date, end_date, source["source_id"])
+    if not data:
+        return [], [], HIDDEN, ""
+    header = html.H5(f"Breakdown: {source['Expense Source']}", className="mt-3 mb-2")
+    return data, [], SHOWN, header
+
+
+# Callback: drill down into subcategories when a category is selected under a source
+@callback(
+    Output("trans-src-subcat-datatable", "data"),
+    Output("trans-src-subcat-datatable", "selected_rows"),
+    Output("trans-src-subcat-row", "style"),
+    Output("trans-src-subcat-header", "children"),
+    Input("trans-src-cat-datatable", "selected_rows"),
+    State("trans-src-cat-datatable", "data"),
+    State("trans-source-datatable", "selected_rows"),
+    State("trans-source-datatable", "data"),
+    State("trans-summary-range", "start_date"),
+    State("trans-summary-range", "end_date"),
+)
+def update_src_subcat_table(cat_selected, cat_data, source_selected, source_data, start_date, end_date):
+    if not cat_selected or not cat_data or not source_selected or not source_data:
+        return [], [], HIDDEN, ""
+    source = source_data[source_selected[0]]
+    category = cat_data[cat_selected[0]]["Category"]
+    data = get_subcategory_summary(start_date, end_date, category, source_id=source["source_id"])
+    if not data:
+        return [], [], HIDDEN, ""
+    header = html.H5(f"Breakdown: {source['Expense Source']} › {category}", className="mt-3 mb-2")
+    return data, [], SHOWN, header
+
+
+# Callback: drill down into transactions when a subcategory is selected under a source
+@callback(
+    Output("trans-src-detail-datatable", "data"),
+    Output("trans-src-detail-row", "style"),
+    Output("trans-src-detail-header", "children"),
+    Input("trans-src-subcat-datatable", "selected_rows"),
+    State("trans-src-subcat-datatable", "data"),
+    State("trans-src-cat-datatable", "selected_rows"),
+    State("trans-src-cat-datatable", "data"),
+    State("trans-source-datatable", "selected_rows"),
+    State("trans-source-datatable", "data"),
+    State("trans-summary-range", "start_date"),
+    State("trans-summary-range", "end_date"),
+)
+def update_src_detail_table(subcat_selected, subcat_data, cat_selected, cat_data,
+                            source_selected, source_data, start_date, end_date):
+    if not (subcat_selected and subcat_data and cat_selected and cat_data
+            and source_selected and source_data):
+        return [], HIDDEN, ""
+    source = source_data[source_selected[0]]
+    category = cat_data[cat_selected[0]]["Category"]
+    subcategory = subcat_data[subcat_selected[0]]["Sub-Category"]
+    data = get_transactions_detail(start_date, end_date, category, subcategory, source_id=source["source_id"])
+    if not data:
+        return [], HIDDEN, ""
+    label = subcategory or "(no subcategory)"
+    header = html.H5(
+        f"Transactions: {source['Expense Source']} › {category} › {label}", className="mt-3 mb-2"
+    )
+    return data, SHOWN, header
 
 
 # Callback: populate sub-category filter when category is selected
