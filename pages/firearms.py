@@ -1,5 +1,5 @@
 import dash
-from dash import dcc, html, callback, Input, Output, State, ctx
+from dash import dcc, html, callback, Input, Output, State, ctx, no_update
 from dash.dash_table import DataTable
 import dash_bootstrap_components as dbc
 import pandas as pd
@@ -9,7 +9,17 @@ from datetime import datetime
 from models import Session, postgres_session
 from models.firearm import (
     FirearmVisit, FirearmEnd, TrapRound, TrapShot,
-    DoubleTrapRound, DoubleTrapShot, SkeetRound, FirearmRange,
+    DoubleTrapRound, DoubleTrapShot, SkeetRound, SkeetShot, FirearmRange,
+)
+from components.skeet_targets import (
+    SHOT_CELL_STYLE,
+    SHOT_HEADER_STYLE,
+    blank_shot_row,
+    build_shot_rows,
+    get_sequence,
+    miss_highlight,
+    parse_shot_cells,
+    shot_columns,
 )
 
 dash.register_page(__name__, path="/firearms")
@@ -397,7 +407,7 @@ _END_FIELDS = [
     ("fe-is-skeet", False), ("fe-skeet-discipline", None), ("fe-skeet-sequence", None),
     ("fe-skeet-num-break", None),
     ("fe-skeet-choke1", None), ("fe-skeet-choke2", None), ("fe-skeet-low-gun-start", False),
-    ("fe-skeet-remarks", None),
+    ("fe-skeet-remarks", None), ("fe-skeet-by-shot", False),
     ("fe-is-double-trap", False), ("fe-dt-dist-unit", "yd"), ("fe-dt-distance", None), ("fe-dt-style", None),
     ("fe-dt-num-break", None), ("fe-dt-start-station", None),
     ("fe-dt-choke1", None), ("fe-dt-choke2", None), ("fe-dt-by-station", False),
@@ -861,6 +871,37 @@ layout = dbc.Container(
                             ], md=10),
                             className="mb-3",
                         ),
+                        dbc.Row(
+                            dbc.Col([
+                                html.Label("Record shot-by-shot?"),
+                                dbc.RadioItems(
+                                    id="fe-skeet-by-shot",
+                                    options=[
+                                        {"label": " Yes", "value": True},
+                                        {"label": " No", "value": False},
+                                    ],
+                                    value=False,
+                                    inline=True,
+                                ),
+                            ], md=6),
+                            className="mb-2",
+                        ),
+                        dbc.Collapse(
+                            id="fe-skeet-shots-collapse",
+                            is_open=False,
+                            children=[
+                                html.Small(id="fe-skeet-shots-hint", className="text-muted"),
+                                DataTable(
+                                    id="fe-skeet-shots-table",
+                                    columns=[],
+                                    data=[],
+                                    editable=True,
+                                    style_table={"overflowX": "auto"},
+                                    style_cell=SHOT_CELL_STYLE,
+                                    style_header=SHOT_HEADER_STYLE,
+                                ),
+                            ],
+                        ),
                     ]), className="bg-light"),
                 ),
 
@@ -1230,10 +1271,36 @@ def toggle_dt_stations(by_station):
 
 
 @callback(
+    Output("fe-skeet-shots-collapse", "is_open"),
+    Output("fe-skeet-shots-hint", "children"),
+    Output("fe-skeet-shots-table", "columns"),
+    Output("fe-skeet-shots-table", "data"),
+    Output("fe-skeet-shots-table", "style_data_conditional"),
+    Input("fe-skeet-by-shot", "value"),
+    Input("fe-skeet-discipline", "value"),
+    Input("fe-skeet-sequence", "value"),
+    State("fe-skeet-shots-table", "columns"),
+)
+def update_skeet_shots_table(by_shot, discipline, sequence_name, current_columns):
+    sequence = get_sequence(sequence_name or discipline)
+    if sequence is None:
+        hint = "Select a discipline to load the targets."
+        return bool(by_shot), hint, [], [], []
+
+    hint = f"{sequence_name or discipline} sequence. Every target starts at 1 (hit); set misses to 0."
+    columns = shot_columns(sequence)
+    # keep what has been entered unless the target sequence actually changed
+    if columns == current_columns:
+        return bool(by_shot), hint, no_update, no_update, no_update
+    return bool(by_shot), hint, columns, [blank_shot_row(sequence)], miss_highlight(sequence)
+
+
+@callback(
     Output("fe-alert", "children"),
     Output("fe-ends-store", "data"),
     Output("fe-ends-table", "children"),
     *_END_FIELD_OUTPUTS,
+    Output("fe-skeet-shots-table", "data", allow_duplicate=True),
     Input("fe-add-btn", "n_clicks"),
     State("fv-visit-id-store", "data"),
     State("fe-model", "value"),
@@ -1273,6 +1340,7 @@ def toggle_dt_stations(by_station):
     State("fe-skeet-choke2", "value"),
     State("fe-skeet-low-gun-start", "value"),
     State("fe-skeet-remarks", "value"),
+    State("fe-skeet-by-shot", "value"),
     State("fe-is-double-trap", "value"),
     State("fe-dt-dist-unit", "value"),
     State("fe-dt-distance", "value"),
@@ -1288,6 +1356,7 @@ def toggle_dt_stations(by_station):
     State("fe-dt-station-4", "value"),
     State("fe-dt-station-5", "value"),
     State("fe-dt-remarks", "value"),
+    State("fe-skeet-shots-table", "data"),
     State("fe-ends-store", "data"),
     prevent_initial_call=True,
 )
@@ -1301,10 +1370,11 @@ def add_end(
     trap_num_break, trap_start_station, trap_choke1, trap_choke2, trap_by_station,
     s1, s2, s3, s4, s5, trap_remarks,
     is_skeet, skeet_discipline, skeet_sequence, skeet_num_break, skeet_choke1, skeet_choke2, skeet_low_gun_start,
-    skeet_remarks,
+    skeet_remarks, skeet_by_shot,
     is_double_trap, dt_dist_unit, dt_distance, dt_style,
     dt_num_break, dt_start_station, dt_choke1, dt_choke2, dt_by_station,
     dt1, dt2, dt3, dt4, dt5, dt_remarks,
+    skeet_shots_data,
     ends_store,
 ):
     ends_store = ends_store or []
@@ -1314,7 +1384,7 @@ def add_end(
             dbc.Alert(msg, color="warning"),
             ends_store,
             render_ends_table(ends_store),
-        ) + _KEEP_END
+        ) + _KEEP_END + (no_update,)
 
     if not visit_id:
         return warn("No visit created yet.")
@@ -1324,6 +1394,21 @@ def add_end(
         return warn("An end can only be one of: trap, skeet, double trap.")
     if is_skeet and not skeet_discipline:
         return warn("Skeet discipline is required.")
+
+    skeet_sequence_targets = get_sequence(skeet_sequence or skeet_discipline) if is_skeet else None
+    skeet_results = None
+    if is_skeet and skeet_by_shot:
+        if skeet_sequence_targets is None or not skeet_shots_data:
+            return warn("No target sequence is loaded for the shot-by-shot record.")
+        skeet_results, bad = parse_shot_cells(skeet_sequence_targets, skeet_shots_data[0])
+        if bad:
+            return warn("Every shot must be 1 (hit) or 0 (miss). Check: " + ", ".join(bad))
+        if skeet_num_break is not None and int(skeet_num_break) != sum(skeet_results):
+            return warn(
+                f"Num Breaks is {int(skeet_num_break)} but the shot-by-shot record "
+                f"has {sum(skeet_results)}. Correct one of them, or clear Num Breaks."
+            )
+        skeet_num_break = sum(skeet_results)
 
     try:
         distance_m = None
@@ -1403,6 +1488,11 @@ def add_end(
             postgres_session.add(skeet_obj)
             postgres_session.flush()
 
+            if skeet_results is not None:
+                shot_rows, _ = build_shot_rows(skeet_sequence_targets, skeet_results)
+                for shot_row in shot_rows:
+                    postgres_session.add(SkeetShot(skeet_round_id=skeet_obj.id, **shot_row))
+
         if is_double_trap:
             dt_dist_yard = dt_dist_m = None
             if dt_distance is not None:
@@ -1452,11 +1542,13 @@ def add_end(
             blank if fid in _CLEAR_AFTER_END else ctx.states[f"{fid}.value"]
             for fid, blank in _END_FIELDS
         )
+        # the shot-by-shot record belongs to this end, so the next one starts fresh
+        next_shots = [blank_shot_row(skeet_sequence_targets)] if skeet_sequence_targets else no_update
         return (
             dbc.Alert(f"End #{end_obj.id} added.", color="success", dismissable=True),
             new_store,
             render_ends_table(new_store),
-        ) + carried
+        ) + carried + (next_shots,)
 
     except Exception as e:
         postgres_session.rollback()
@@ -1464,7 +1556,7 @@ def add_end(
             dbc.Alert(f"Error adding end: {e}", color="danger", dismissable=True),
             ends_store,
             render_ends_table(ends_store),
-        ) + _KEEP_END
+        ) + _KEEP_END + (no_update,)
 
 
 # ── Existing stat callbacks ──────────────────────────────────────────────────────

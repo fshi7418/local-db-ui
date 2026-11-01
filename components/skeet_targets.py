@@ -105,6 +105,68 @@ def miss_highlight(sequence):
     ]
 
 
+def blank_shot_row(sequence):
+    """One table row for a fresh round: every target starts as a hit."""
+    return {cell_id(i): 1 for i in range(1, len(sequence) + 1)}
+
+
+def parse_shot_cells(sequence, row):
+    """Read a table row into 1/0 results.
+
+    Returns (results, bad), where `bad` describes every cell that is not 0 or 1.
+    """
+    results = []
+    bad = []
+    for i, (label, *_rest) in enumerate(sequence, start=1):
+        try:
+            value = int(row.get(cell_id(i)))
+        except (TypeError, ValueError):
+            bad.append(f"{label} (position {i})")
+            continue
+        if value not in (0, 1):
+            bad.append(f"{label} (position {i})")
+            continue
+        results.append(value)
+    return results, bad
+
+
+def build_shot_rows(sequence, results):
+    """Turn 1/0 results into skeet_shot column values.
+
+    Returns (rows, option_note); `option_note` describes the option shot, if the
+    sequence has one.
+    """
+    rows = []
+    option_note = None
+    for i, (label, station, house, single_double, pair_order) in enumerate(sequence, start=1):
+        if label == OPTION_LABEL:
+            # the option repeats the first target missed; a clean 24 means it
+            # repeats the last target of the round
+            missed = [n for n, hit in enumerate(results[:i - 1], start=1) if hit == 0]
+            target_number = missed[0] if missed else i - 1
+            _, station, house, single_double, pair_order = sequence[target_number - 1]
+            is_option = True
+            option_note = (
+                f"Option shot recorded as a repeat of target {target_number} "
+                f"({sequence[target_number - 1][0]})."
+            )
+        else:
+            target_number = i
+            is_option = False
+
+        rows.append({
+            "shot_order": i,
+            "target_number": target_number,
+            "station": station,
+            "house": house,
+            "single_double": single_double,
+            "pair_order": pair_order,
+            "is_option": is_option,
+            "broken": bool(results[i - 1]),
+        })
+    return rows, option_note
+
+
 SHOT_CELL_STYLE = {
     "textAlign": "center",
     "padding": "6px",

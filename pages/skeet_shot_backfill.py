@@ -7,12 +7,13 @@ from sqlalchemy import text
 from models import Session, postgres_session
 from models.firearm import SkeetShot
 from components.skeet_targets import (
-    OPTION_LABEL,
     SHOT_CELL_STYLE,
     SHOT_HEADER_STYLE,
+    build_shot_rows,
     cell_id,
     get_sequence,
     miss_highlight,
+    parse_shot_cells,
     shot_columns,
 )
 
@@ -235,22 +236,8 @@ def save_shots(_, table_data, store, overwrite):
     if sequence is None:
         return dbc.Alert("Unsupported sequence.", color="danger"), no_update
 
-    row = table_data[0]
-
     # every cell must be 0 or 1
-    results = []
-    bad = []
-    for i, (label, *_rest) in enumerate(sequence, start=1):
-        raw = row.get(cell_id(i))
-        try:
-            value = int(raw)
-        except (TypeError, ValueError):
-            bad.append(f"{label} (position {i})")
-            continue
-        if value not in (0, 1):
-            bad.append(f"{label} (position {i})")
-            continue
-        results.append(value)
+    results, bad = parse_shot_cells(sequence, table_data[0])
     if bad:
         return dbc.Alert(
             "Every cell must be 1 (hit) or 0 (miss). Check: " + ", ".join(bad),
@@ -274,34 +261,9 @@ def save_shots(_, table_data, store, overwrite):
                 SkeetShot.skeet_round_id == round_id
             ).delete(synchronize_session=False)
 
-        option_note = None
-        for i, (label, station, house, single_double, pair_order) in enumerate(sequence, start=1):
-            if label == OPTION_LABEL:
-                # the option repeats the first target missed; a clean 24 means it
-                # repeats the last target of the round
-                missed = [n for n, hit in enumerate(results[:i - 1], start=1) if hit == 0]
-                target_number = missed[0] if missed else i - 1
-                _, station, house, single_double, pair_order = sequence[target_number - 1]
-                is_option = True
-                option_note = (
-                    f"Option shot recorded as a repeat of target {target_number} "
-                    f"({sequence[target_number - 1][0]})."
-                )
-            else:
-                target_number = i
-                is_option = False
-
-            postgres_session.add(SkeetShot(
-                skeet_round_id=round_id,
-                shot_order=i,
-                target_number=target_number,
-                station=station,
-                house=house,
-                single_double=single_double,
-                pair_order=pair_order,
-                is_option=is_option,
-                broken=bool(results[i - 1]),
-            ))
+        shot_rows, option_note = build_shot_rows(sequence, results)
+        for shot_row in shot_rows:
+            postgres_session.add(SkeetShot(skeet_round_id=round_id, **shot_row))
 
         postgres_session.commit()
     except Exception as e:
