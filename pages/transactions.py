@@ -109,7 +109,7 @@ def get_category_summary(start_date, end_date):
         return []
 
 
-# Helper: sum amount by expense source within a date range
+# Helper: sum amount by expense source within a date range, excluding deposits
 def get_source_summary(start_date, end_date):
     try:
         from models import Session
@@ -120,11 +120,11 @@ def get_source_summary(start_date, end_date):
                 SELECT es.id, es.source_name, SUM(t.amount) AS amount
                 FROM expense_transactions t
                 JOIN expense_source es ON t.expense_source_id = es.id
-                WHERE 1 = 1{where}
+                WHERE t.category <> :deposit{where}
                 GROUP BY es.id, es.source_name
                 ORDER BY es.source_name
             """),
-            params,
+            {"deposit": ExpenseCat.DEPOSIT.value, **params},
         ).fetchall()
         session.close()
         return [{"Expense Source": r.source_name, "Amount": r.amount, "source_id": r.id} for r in rows]
@@ -133,7 +133,7 @@ def get_source_summary(start_date, end_date):
         return []
 
 
-# Helper: sum amount by category within a date range for one expense source
+# Helper: sum amount by category within a date range for one expense source, excluding deposits
 def get_source_category_summary(start_date, end_date, source_id):
     try:
         from models import Session
@@ -143,11 +143,12 @@ def get_source_category_summary(start_date, end_date, source_id):
             text(f"""
                 SELECT t.category, SUM(t.amount) AS amount
                 FROM expense_transactions t
-                WHERE t.expense_source_id = :source_id{where}
+                WHERE t.expense_source_id = :source_id
+                  AND t.category <> :deposit{where}
                 GROUP BY t.category
                 ORDER BY t.category
             """),
-            {"source_id": source_id, **params},
+            {"source_id": source_id, "deposit": ExpenseCat.DEPOSIT.value, **params},
         ).fetchall()
         session.close()
         return [{"Category": r.category, "Amount": r.amount} for r in rows]
