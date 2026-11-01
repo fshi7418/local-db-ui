@@ -111,6 +111,51 @@ def get_shots_categorized(start_date, end_date):
         return []
 
 
+# Helper: query total shots in a date range
+def get_total_shots(start_date, end_date):
+    try:
+        session = Session()
+        total = session.execute(text("""
+            select coalesce(sum(num_shots), 0)
+            from archery_round
+            where date >= :start_date
+            and date <= :end_date
+        """), {"start_date": start_date, "end_date": end_date}).scalar()
+        session.close()
+        return int(total)
+    except Exception as e:
+        print(f"Error querying total shots: {e}")
+        return None
+
+
+# Helper: query total shots by range
+def get_shots_by_range(start_date, end_date):
+    try:
+        session = Session()
+        query = text("""
+            select
+                rng.name,
+                concat_ws(', ', rng.address_street, rng.address_city, rng.address_province, rng.country_iso),
+                sum(r.num_shots) as num_shots
+            from archery_round r, archery_range rng
+            where r.archery_range_id = rng.id
+            and r.date >= :start_date
+            and r.date <= :end_date
+            group by rng.id
+            order by sum(r.num_shots) desc
+        """)
+        result = session.execute(query, {"start_date": start_date, "end_date": end_date}).fetchall()
+        session.close()
+
+        return [
+            {"Range Name": row[0], "Address": row[1], "Num Shots": int(row[2] or 0)}
+            for row in result
+        ]
+    except Exception as e:
+        print(f"Error querying shots by range: {e}")
+        return []
+
+
 # ── Reference data helpers (entry form) ────────────────────────────────────────
 
 def _options(query, label_fn=lambda r: r[1]):
@@ -290,7 +335,7 @@ def round_entry_section():
         dbc.Row(
             dbc.Col(
                 dbc.Card(dbc.CardBody([
-                    html.H4("Add Archery Round", className="card-title"),
+                    html.H4("Add Archery Round", className="card-title", id="section-add-round"),
                     html.P(
                         "Equipment and settings are prefilled from the most recent round.",
                         className="text-muted small",
@@ -461,6 +506,29 @@ def layout():
                 className="mb-4"
             ),
 
+            # Table of contents
+            dbc.Row(
+                dbc.Col(
+                    dbc.Card(dbc.CardBody([
+                        html.H5("On this page", className="card-title"),
+                        html.Ul(
+                            [
+                                html.Li(html.A(label, href=f"#{anchor}", className="text-decoration-none"))
+                                for label, anchor in [
+                                    ("Add Archery Round", "section-add-round"),
+                                    ("Archery Rounds", "section-rounds"),
+                                    ("Total Shots Categorized", "section-shots-categorized"),
+                                    ("Shots by Range", "section-shots-by-range"),
+                                ]
+                            ],
+                            className="mb-0",
+                        ),
+                    ])),
+                    width=12,
+                ),
+                className="mb-4",
+            ),
+
             *round_entry_section(),
 
             # Archery Rounds Overview
@@ -468,7 +536,7 @@ def layout():
                 dbc.Col(
                     dbc.Card(
                         dbc.CardBody([
-                            html.H4("Archery Rounds", className="card-title"),
+                            html.H4("Archery Rounds", className="card-title", id="section-rounds"),
                             html.Label("Columns to Display"),
                             dcc.Dropdown(
                                 id="archery-rounds-columns",
@@ -491,7 +559,7 @@ def layout():
                 dbc.Col(
                     dbc.Card(
                         dbc.CardBody([
-                            html.H4("Total Shots Categorized", className="card-title"),
+                            html.H4("Total Shots Categorized", className="card-title", id="section-shots-categorized"),
                             dbc.Row([
                                 dbc.Col([
                                     html.Label("Start Date"),
@@ -510,7 +578,10 @@ def layout():
                                     ),
                                 ], md=6),
                             ], className="mb-3"),
+                            html.H5(id="shots-total", className="mb-3"),
                             html.Div(id="shots-categorized-table"),
+                            html.H5("Shots by Range", className="mt-4", id="section-shots-by-range"),
+                            html.Div(id="shots-by-range-table"),
                         ]),
                     ),
                     width=12,
@@ -758,6 +829,34 @@ def update_archery_rounds(selected_columns, _refresh):
     )
 
 @callback(
+    Output("shots-total", "children"),
+    Input("shots-cat-start-date", "value"),
+    Input("shots-cat-end-date", "value"),
+)
+def update_shots_total(start_date, end_date):
+    if not start_date or not end_date:
+        return None
+    total = get_total_shots(start_date, end_date)
+    if total is None:
+        return "Total Shots: unavailable"
+    return f"Total Shots: {total:,}"
+
+
+def _shots_summary_table(columns, data):
+    return DataTable(
+        columns=columns,
+        data=pd.DataFrame(data).to_dict("records"),
+        sort_action="native",
+        filter_action="native",
+        style_cell={"textAlign": "left", "padding": "10px"},
+        style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
+        style_data_conditional=[
+            {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"}
+        ],
+    )
+
+
+@callback(
     Output("shots-categorized-table", "children"),
     Input("shots-cat-start-date", "value"),
     Input("shots-cat-end-date", "value"),
@@ -768,21 +867,27 @@ def update_shots_categorized(start_date, end_date):
     data = get_shots_categorized(start_date, end_date)
     if not data:
         return html.P("No data available")
-    df = pd.DataFrame(data)
-    columns = [
+    return _shots_summary_table([
         {"name": "Bow Type", "id": "Bow Type", "type": "text"},
         {"name": "Limb", "id": "Limb", "type": "text"},
         {"name": "Draw Weight (lb)", "id": "Draw Weight (lb)", "type": "numeric"},
         {"name": "Num Shots", "id": "Num Shots", "type": "numeric"},
-    ]
-    return DataTable(
-        columns=columns,
-        data=df.to_dict("records"),
-        sort_action="native",
-        filter_action="native",
-        style_cell={"textAlign": "left", "padding": "10px"},
-        style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
-        style_data_conditional=[
-            {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"}
-        ],
-    )
+    ], data)
+
+
+@callback(
+    Output("shots-by-range-table", "children"),
+    Input("shots-cat-start-date", "value"),
+    Input("shots-cat-end-date", "value"),
+)
+def update_shots_by_range(start_date, end_date):
+    if not start_date or not end_date:
+        return html.P("Please select both dates")
+    data = get_shots_by_range(start_date, end_date)
+    if not data:
+        return html.P("No data available")
+    return _shots_summary_table([
+        {"name": "Range Name", "id": "Range Name", "type": "text"},
+        {"name": "Address", "id": "Address", "type": "text"},
+        {"name": "Num Shots", "id": "Num Shots", "type": "numeric"},
+    ], data)
