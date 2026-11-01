@@ -1,21 +1,32 @@
 import dash
-from dash import html, dcc, callback, Input, Output, State, ctx
+from dash import html, dcc, callback, Input, Output, State, ctx, no_update
 from dash.dash_table import DataTable
 import dash_bootstrap_components as dbc
 import pandas as pd
 from sqlalchemy import text
 
-from models import Session
+from models import Session, postgres_session
+from models.firearm import SkeetShot
+from components.clayshooting_nav import clayshooting_header
 from components.skeet_targets import (
     SHOT_CELL_STYLE,
     SHOT_HEADER_STYLE,
+    build_shot_rows,
     cell_id,
     get_sequence,
     miss_highlight,
+    parse_shot_cells,
     shot_columns,
 )
 
-dash.register_page(__name__, path="/skeet")
+dash.register_page(
+    __name__,
+    path="/clayshooting/skeet",
+    redirect_from=["/skeet", "/skeet-shot-backfill"],
+)
+
+HIDDEN = {"display": "none"}
+SHOWN = {"display": "block"}
 
 
 def get_skeet_rounds(discipline=None):
@@ -69,24 +80,61 @@ def get_skeet_rounds(discipline=None):
         return []
 
 
-def get_skeet_shots(round_id):
-    """Shot-by-shot record for one round, keyed by position in the sequence."""
+def get_round_info(round_id):
+    """One round and its shot-by-shot record, keyed by position in the sequence."""
     try:
         session = Session()
-        rows = session.execute(text("""
+        row = session.execute(text("""
+            select sk.id, sk.discipline, coalesce(sk.sequence, sk.discipline) as sequence,
+                   sk.num_break, v.visit_date
+            from skeet_round sk
+            join firearm_end e on sk.firearm_end_id = e.id
+            join firearm_visit v on e.firearm_visit_id = v.id
+            where sk.id = :id
+        """), {"id": round_id}).fetchone()
+        shots = session.execute(text("""
             select shot_order, target_number, is_option, broken
             from skeet_shot
             where skeet_round_id = :id
             order by shot_order
         """), {"id": round_id}).fetchall()
         session.close()
-        return [
-            {"shot_order": r[0], "target_number": r[1], "is_option": r[2], "broken": r[3]}
-            for r in rows
-        ]
+        if not row:
+            return None
+        return {
+            "id": row[0],
+            "discipline": row[1],
+            "sequence": row[2],
+            "num_break": row[3],
+            "visit_date": row[4].strftime("%Y-%m-%d") if row[4] else None,
+            "shots": [
+                {"shot_order": s[0], "target_number": s[1], "is_option": s[2], "broken": s[3]}
+                for s in shots
+            ],
+        }
     except Exception as e:
-        print(f"Error querying skeet shots for round {round_id}: {e}")
-        return []
+        print(f"Error querying skeet round {round_id}: {e}")
+        return None
+
+
+def shots_summary(sequence, shots):
+    """One line describing a round's stored shots."""
+    if not shots:
+        return (
+            "No shot-by-shot record yet. Every target starts as a hit, and nothing "
+            "is saved until you press Save Shots."
+        )
+    breaks = sum(1 for s in shots if s["broken"])
+    summary = [f"{breaks}/{len(shots)} broken"]
+    if len(shots) != len(sequence):
+        summary.append(
+            f"only {len(shots)} of {len(sequence)} targets recorded; the rest show as 1"
+        )
+    option = next((s for s in shots if s["is_option"]), None)
+    if option is not None:
+        label = sequence[option["target_number"] - 1][0]
+        summary.append(f"option repeated target {option['target_number']} ({label})")
+    return " · ".join(summary)
 
 
 def get_disciplines():
@@ -132,10 +180,7 @@ DEFAULT_COLUMNS = [col["id"] for col in COLUMNS if col["id"] not in HIDDEN_BY_DE
 
 layout = dbc.Container(
     [
-        dbc.Row(
-            dbc.Col(html.H2("Skeet"), width=12),
-            className="mb-4",
-        ),
+        clayshooting_header(),
         dbc.Row(
             [
                 dbc.Col([
@@ -178,14 +223,46 @@ layout = dbc.Container(
             ),
         ),
 
-        # Shot-by-shot detail (shown when a round is selected)
+        # Shot-by-shot record (shown when a round is selected). These components stay
+        # in the layout permanently because the save callback reads them as State.
+        dcc.Store(id="skeet-round-store"),
         dbc.Row(
             dbc.Col([
                 html.Div(id="skeet-shots-header"),
-                html.Div(id="skeet-shots-container"),
+                html.Div(id="skeet-shots-message"),
+                html.Div(
+                    [
+                        DataTable(
+                            id="skeet-shots-table",
+                            columns=[],
+                            data=[],
+                            editable=True,
+                            style_table={"overflowX": "auto"},
+                            style_cell=SHOT_CELL_STYLE,
+                            style_header=SHOT_HEADER_STYLE,
+                        ),
+                        html.Small(id="skeet-shots-summary", className="text-muted"),
+                        html.Div(
+                            dbc.Checklist(
+                                id="skeet-replace-shots",
+                                options=[{"label": " Replace existing shots for this round",
+                                          "value": "overwrite"}],
+                                value=[],
+                                switch=True,
+                            ),
+                            id="skeet-replace-row",
+                            className="mt-3",
+                            style=HIDDEN,
+                        ),
+                        dbc.Button("Save Shots", id="skeet-save-shots", color="success", className="mt-3"),
+                    ],
+                    id="skeet-shots-editor",
+                    style=HIDDEN,
+                ),
+                html.Div(id="skeet-save-result", className="mt-3"),
             ], width=12),
             id="skeet-shots-row",
-            style={"display": "none"},
+            style=HIDDEN,
             className="mb-3",
         ),
     ],
@@ -233,11 +310,20 @@ def load_skeet_table(discipline, start_date, end_date, selected_columns):
     )
 
 
-# Callback: drill down into the shot-by-shot record when a round is selected
+# Callback: open the editable shot-by-shot record when a round is selected
 @callback(
     Output("skeet-shots-row", "style"),
     Output("skeet-shots-header", "children"),
-    Output("skeet-shots-container", "children"),
+    Output("skeet-shots-message", "children"),
+    Output("skeet-shots-editor", "style"),
+    Output("skeet-shots-table", "columns"),
+    Output("skeet-shots-table", "data"),
+    Output("skeet-shots-table", "style_data_conditional"),
+    Output("skeet-shots-summary", "children"),
+    Output("skeet-replace-row", "style"),
+    Output("skeet-replace-shots", "value"),
+    Output("skeet-round-store", "data"),
+    Output("skeet-save-result", "children"),
     Input("skeet-rounds-table", "selected_rows"),
     Input("skeet-filter-discipline", "value"),
     Input("skeet-filter-date-range", "start_date"),
@@ -245,7 +331,7 @@ def load_skeet_table(discipline, start_date, end_date, selected_columns):
     State("skeet-rounds-table", "data"),
 )
 def load_skeet_shots(selected_rows, _discipline, _start_date, _end_date, table_data):
-    hidden = ({"display": "none"}, "", None)
+    hidden = (HIDDEN, "", None, HIDDEN, [], [], [], "", HIDDEN, [], None, None)
 
     # changing a filter rebuilds the table, so drop any open drill-down
     if ctx.triggered_id != "skeet-rounds-table":
@@ -253,71 +339,125 @@ def load_skeet_shots(selected_rows, _discipline, _start_date, _end_date, table_d
     if not selected_rows or not table_data:
         return hidden
 
-    row = table_data[selected_rows[0]]
-    round_id = row.get("ID")
-    discipline = row.get("Discipline")
-    sequence_name = row.get("Sequence") or discipline
+    info = get_round_info(table_data[selected_rows[0]].get("ID"))
+    if info is None:
+        return hidden
+
+    discipline = info["discipline"]
+    sequence_name = info["sequence"]
     title = discipline or "—"
     if sequence_name != discipline:
         title += f" field, {sequence_name or '—'} sequence"
     header = html.H5(
-        f"Round {round_id} · {title} · {row.get('Visit Date') or '—'}",
+        f"Round {info['id']} · {title} · {info['visit_date'] or '—'}",
         className="mt-3 mb-2",
     )
 
     sequence = get_sequence(sequence_name)
     if sequence is None:
-        return (
-            {"display": "block"},
-            header,
-            html.P(
-                f"No target sequence is defined for {sequence_name!r}.",
-                className="text-muted",
-            ),
+        message = html.P(
+            f"No target sequence is defined for {sequence_name!r}.",
+            className="text-muted",
         )
+        return SHOWN, header, message, HIDDEN, [], [], [], "", HIDDEN, [], None, None
 
-    shots = get_skeet_shots(round_id)
-    if not shots:
-        return (
-            {"display": "block"},
-            header,
-            html.P(
-                "No shot-by-shot record for this round. Add one on the "
-                "Skeet Shot Backfill page.",
-                className="text-muted",
-            ),
-        )
+    # shot_order is the 1-based position in the round's target sequence; a target
+    # with nothing on file shows as a hit
+    stored = {s["shot_order"]: 1 if s["broken"] else 0 for s in info["shots"]}
+    row = {cell_id(i): stored.get(i, 1) for i in range(1, len(sequence) + 1)}
 
-    # shot_order is the 1-based position in the round's target sequence
-    cells = {}
-    for shot in shots:
-        position = shot["shot_order"]
-        if 1 <= position <= len(sequence):
-            cells[cell_id(position)] = 1 if shot["broken"] else 0
-
-    breaks = sum(1 for s in shots if s["broken"])
-    summary = [f"{breaks}/{len(shots)} broken"]
-    if len(shots) != len(sequence):
-        summary.append(
-            f"only {len(shots)} of {len(sequence)} targets recorded"
-        )
-    option = next((s for s in shots if s["is_option"]), None)
-    if option is not None:
-        label = sequence[option["target_number"] - 1][0]
-        summary.append(f"option repeated target {option['target_number']} ({label})")
-
-    table = DataTable(
-        id="skeet-shots-table",
-        columns=shot_columns(sequence),
-        data=[cells],
-        editable=False,
-        style_table={"overflowX": "auto"},
-        style_cell=SHOT_CELL_STYLE,
-        style_header=SHOT_HEADER_STYLE,
-        style_data_conditional=miss_highlight(sequence),
-    )
     return (
-        {"display": "block"},
+        SHOWN,
         header,
-        html.Div([table, html.Small(" · ".join(summary), className="text-muted")]),
+        None,
+        SHOWN,
+        shot_columns(sequence),
+        [row],
+        miss_highlight(sequence),
+        shots_summary(sequence, info["shots"]),
+        SHOWN if info["shots"] else HIDDEN,
+        [],
+        {"round_id": info["id"], "sequence": sequence_name},
+        None,
+    )
+
+
+# Callback: save the shot-by-shot record for the selected round
+@callback(
+    Output("skeet-save-result", "children", allow_duplicate=True),
+    Output("skeet-shots-summary", "children", allow_duplicate=True),
+    Output("skeet-replace-row", "style", allow_duplicate=True),
+    Output("skeet-replace-shots", "value", allow_duplicate=True),
+    Input("skeet-save-shots", "n_clicks"),
+    State("skeet-shots-table", "data"),
+    State("skeet-round-store", "data"),
+    State("skeet-replace-shots", "value"),
+    prevent_initial_call=True,
+)
+def save_shots(_, table_data, store, overwrite):
+    def failed(alert):
+        return alert, no_update, no_update, no_update
+
+    if not store or not table_data:
+        return failed(dbc.Alert("Select a round first.", color="warning"))
+
+    round_id = store["round_id"]
+    sequence = get_sequence(store["sequence"])
+    if sequence is None:
+        return failed(dbc.Alert("Unsupported sequence.", color="danger"))
+
+    # every cell must be 0 or 1
+    results, bad = parse_shot_cells(sequence, table_data[0])
+    if bad:
+        return failed(dbc.Alert(
+            "Every cell must be 1 (hit) or 0 (miss). Check: " + ", ".join(bad),
+            color="danger",
+        ))
+
+    info = get_round_info(round_id)
+    if info is None:
+        return failed(dbc.Alert(f"Skeet round {round_id} no longer exists.", color="danger"))
+    existing_shots = len(info["shots"])
+    if existing_shots and "overwrite" not in (overwrite or []):
+        return failed(dbc.Alert(
+            f"Round {round_id} already has {existing_shots} shot(s). "
+            f"Tick “Replace existing shots for this round” to overwrite them.",
+            color="warning",
+        ))
+
+    try:
+        deleted = 0
+        if existing_shots:
+            deleted = postgres_session.query(SkeetShot).filter(
+                SkeetShot.skeet_round_id == round_id
+            ).delete(synchronize_session=False)
+
+        shot_rows, option_note = build_shot_rows(sequence, results)
+        for shot_row in shot_rows:
+            postgres_session.add(SkeetShot(skeet_round_id=round_id, **shot_row))
+
+        postgres_session.commit()
+    except Exception as e:
+        postgres_session.rollback()
+        return failed(dbc.Alert(f"Error saving shots: {e}", color="danger", dismissable=True))
+
+    total = sum(results)
+    lines = [html.Div(f"Saved {len(results)} shots for round {round_id}. Breaks: {total}/{len(results)}.")]
+    if deleted:
+        lines.append(html.Div(f"Replaced {deleted} previously recorded shot(s)."))
+    if option_note:
+        lines.append(html.Div(option_note))
+    if info["num_break"] is not None and info["num_break"] != total:
+        lines.append(html.Div(
+            f"Note: skeet_round.num_break is {info['num_break']}, which does not match "
+            f"the {total} break(s) entered here. The round total was left unchanged.",
+            className="fw-bold",
+        ))
+
+    refreshed = get_round_info(round_id)
+    return (
+        dbc.Alert(lines, color="success", dismissable=True),
+        shots_summary(sequence, refreshed["shots"] if refreshed else []),
+        SHOWN,
+        [],
     )

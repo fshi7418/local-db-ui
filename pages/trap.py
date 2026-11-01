@@ -6,8 +6,9 @@ import pandas as pd
 from sqlalchemy import text
 
 from models import Session
+from components.clayshooting_nav import clayshooting_header
 
-dash.register_page(__name__, path="/trap")
+dash.register_page(__name__, path="/clayshooting/trap", redirect_from=["/trap", "/clayshooting"])
 
 
 def get_trap_rounds(discipline=None):
@@ -115,10 +116,7 @@ DEFAULT_COLUMNS = [col["id"] for col in COLUMNS if col["id"] not in HIDDEN_BY_DE
 
 layout = dbc.Container(
     [
-        dbc.Row(
-            dbc.Col(html.H2("Trap"), width=12),
-            className="mb-4",
-        ),
+        clayshooting_header(),
         dbc.Row(
             [
                 dbc.Col([

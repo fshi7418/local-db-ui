@@ -1,4 +1,4 @@
-"""Standard skeet target sequences, shared by the skeet pages.
+"""Standard skeet target sequences, shared by the skeet page and the Firearms form.
 
 Each entry is (label, station, house, single_double, pair_order). The order of
 the list is the order the targets are shot, so a shot's 1-based position in the

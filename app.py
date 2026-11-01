@@ -45,10 +45,8 @@ app.layout = dbc.Container(
                         dbc.NavLink("Archery Data", href="/archery-data", active="exact"),
                         dbc.NavLink("Firearms", href="/firearms", active="exact"),
                         dbc.NavLink("Firearm Data", href="/firearm-data", active="exact"),
-                        dbc.NavLink("Trap", href="/trap", active="exact"),
-                        dbc.NavLink("Double Trap", href="/double-trap", active="exact"),
-                        dbc.NavLink("Skeet", href="/skeet", active="exact"),
-                        dbc.NavLink("Skeet Shot Backfill", href="/skeet-shot-backfill", active="exact"),
+                        # external_link: /clayshooting is a server-side redirect to the first tab
+                        dbc.NavLink("Clayshooting", href="/clayshooting", active="partial", external_link=True),
                     ],
                 ),
                 width=12,
