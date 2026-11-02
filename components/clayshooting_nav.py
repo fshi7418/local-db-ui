@@ -3,6 +3,7 @@ from dash import html
 import dash_bootstrap_components as dbc
 
 TABS = [
+    ("Summary", "/clayshooting/summary"),
     ("Trap", "/clayshooting/trap"),
     ("Double Trap", "/clayshooting/double-trap"),
     ("Skeet", "/clayshooting/skeet"),

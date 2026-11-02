@@ -8,7 +8,7 @@ from sqlalchemy import text
 from models import Session
 from components.clayshooting_nav import clayshooting_header
 
-dash.register_page(__name__, path="/clayshooting/trap", redirect_from=["/trap", "/clayshooting"])
+dash.register_page(__name__, path="/clayshooting/trap", redirect_from=["/trap"])
 
 
 def get_trap_rounds(discipline=None):
