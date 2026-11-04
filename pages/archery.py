@@ -14,11 +14,23 @@ from script_modules.add_archery_round import Round
 
 dash.register_page(__name__, path="/archery")
 
-# Helper: query archery rounds overview
-def get_archery_rounds():
+# Helper: query archery rounds overview. With no filter it returns the 20 most
+# recent rounds; with an id and/or date range it returns every matching round.
+def get_archery_rounds(round_id=None, start_date=None, end_date=None):
     try:
         session = Session()
-        query = text("""
+        where, params = "", {}
+        if round_id is not None:
+            where += " and rd.id = :round_id"
+            params["round_id"] = round_id
+        if start_date:
+            where += " and rd.date >= :start_date"
+            params["start_date"] = start_date
+        if end_date:
+            where += " and rd.date <= :end_date"
+            params["end_date"] = end_date
+        limit = "" if params else "limit 20"
+        query = text(f"""
             select
                 rd.id, rd.date, rd.num_shots, rd.avg_shots, rd.total_score, sc.name as scoring_rule, rd.num_x, rd.num_10, rd.num_9, rng.name as range, rd.distance_m, r.name as riser, l.name as limb, a.name as arrow, ar.name as arrow_rest, ar.arrow_rest_type as arrow_rest_type,
                 rls.name as release_aid, rd.seconds_per_arrow,
@@ -34,11 +46,11 @@ def get_archery_rounds():
             join archery_scoring_rule sc on rd.archery_scoring_rule_id = sc.id
             left join archery_target tgt ON tgt.id = rd.archery_target_id
             left join archery_release_aid rls on rls.id = rd.archery_release_aid_id
-            where true
+            where true{where}
             order by rd.date desc, rd.id desc
-            limit 20
+            {limit}
         """)
-        result = session.execute(query).fetchall()
+        result = session.execute(query, params).fetchall()
         session.close()
 
         data = []
@@ -324,6 +336,15 @@ ARCHERY_ROUND_COLUMNS = [
     "Variable Distance", "Days Since Practice",
 ]
 
+# Available in the column picker but not shown until picked, to keep the table narrow
+ARCHERY_ROUND_HIDDEN_BY_DEFAULT = {
+    "X", "10", "9", "Arrow Rest", "Arrow Rest Type", "Release Aid", "Seconds/Arrow",
+    "Magnification", "Known Distance", "Variable Distance",
+}
+ARCHERY_ROUND_DEFAULT_COLUMNS = [
+    col for col in ARCHERY_ROUND_COLUMNS if col not in ARCHERY_ROUND_HIDDEN_BY_DEFAULT
+]
+
 def _labelled(label, component, md):
     return dbc.Col([html.Label(label), component], md=md)
 
@@ -537,16 +558,38 @@ def layout():
                     dbc.Card(
                         dbc.CardBody([
                             html.H4("Archery Rounds", className="card-title", id="section-rounds"),
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Label("Round ID"),
+                                    dbc.Input(id="archery-rounds-filter-id", type="number", min=1, step=1,
+                                              placeholder="Any", debounce=True),
+                                ], md=2),
+                                dbc.Col([
+                                    html.Label("Date Range"),
+                                    html.Br(),
+                                    dcc.DatePickerRange(
+                                        id="archery-rounds-filter-dates",
+                                        display_format="YYYY-MM-DD",
+                                        clearable=True,
+                                    ),
+                                ], md=6),
+                            ], className="mb-1"),
+                            html.Small(
+                                "With no filter, the 20 most recent rounds are shown. "
+                                "Filters combine, and show every matching round.",
+                                className="text-muted d-block mb-3",
+                            ),
                             html.Label("Columns to Display"),
                             dcc.Dropdown(
                                 id="archery-rounds-columns",
                                 options=[{"label": col, "value": col} for col in ARCHERY_ROUND_COLUMNS],
-                                value=ARCHERY_ROUND_COLUMNS,
+                                value=ARCHERY_ROUND_DEFAULT_COLUMNS,
                                 multi=True,
                                 placeholder="Select columns",
                                 className="mb-3",
                             ),
                             html.Div(id="archery-rounds-table"),
+                            html.Div(id="archery-shots-detail"),
                         ]),
                     ),
                     width=12,
@@ -799,10 +842,19 @@ def save_archery_round(
     dash.Output("archery-rounds-table", "children"),
     dash.Input("archery-rounds-columns", "value"),
     dash.Input("ar-refresh-store", "data"),
+    dash.Input("archery-rounds-filter-id", "value"),
+    dash.Input("archery-rounds-filter-dates", "start_date"),
+    dash.Input("archery-rounds-filter-dates", "end_date"),
 )
-def update_archery_rounds(selected_columns, _refresh):
-    data = get_archery_rounds()
+def update_archery_rounds(selected_columns, _refresh, round_id=None, start_date=None, end_date=None):
+    try:
+        round_id = int(round_id) if round_id not in (None, "") else None
+    except (TypeError, ValueError):
+        round_id = None
+    data = get_archery_rounds(round_id, start_date, end_date)
     if not data:
+        if round_id is not None or start_date or end_date:
+            return html.P("No rounds match these filters.", className="text-muted")
         return html.P("No data available")
     df = pd.DataFrame(data)
     # Define numeric columns for proper sorting
@@ -817,16 +869,135 @@ def update_archery_rounds(selected_columns, _refresh):
         for col in display_cols
     ]
     return DataTable(
+        id="archery-rounds-datatable",
         columns=columns,
         data=df.to_dict("records"),
         sort_action="native",
         filter_action="native",
+        page_action="native",
+        page_size=5,
+        row_selectable="single",
+        selected_rows=[],
         style_cell={"textAlign": "left", "padding": "10px", "fontSize": "12px"},
         style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
         style_data_conditional=[
-            {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"}
+            {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"},
+            {"if": {"state": "selected"}, "backgroundColor": "rgba(0, 116, 217, 0.1)",
+             "border": "1px solid #0074D9"},
         ],
     )
+
+
+# Helper: every end of one round with its stored shots, in end and shot order
+def get_round_ends(round_id):
+    try:
+        session = Session()
+        rows = session.execute(text("""
+            select e.end, e.score_total, e.shots_ordered, sh.shot, sh.score, sh.is_x
+            from archery_end e
+            left join archery_shot sh on sh.archery_end_id = e.id
+            where e.archery_round_id = :id
+            order by e.end, sh.shot, sh.id
+        """), {"id": round_id}).fetchall()
+        session.close()
+    except Exception as e:
+        print(f"Error querying ends for archery round {round_id}: {e}")
+        return []
+    ends = {}
+    for end, stored_total, ordered, _shot, score, is_x in rows:
+        entry = ends.setdefault(end, {"end": end, "stored_total": stored_total, "ordered": ordered, "shots": []})
+        if score is not None:
+            entry["shots"].append({"score": score, "is_x": bool(is_x)})
+    return list(ends.values())
+
+
+def render_round_shots(round_row, ends):
+    """Shots per end, then the end total, then the running total."""
+    header = html.H5(
+        f"Round {round_row.get('ID')} · {round_row.get('Date') or '—'}"
+        + (f" · {round_row['Scoring Rule']}" if round_row.get("Scoring Rule") else ""),
+        className="mt-3 mb-2",
+    )
+    if not ends:
+        return html.Div([header, html.P("No ends recorded for this round.", className="text-muted")])
+
+    width = max(len(e["shots"]) for e in ends)
+    shot_ids = [f"shot-{i}" for i in range(1, width + 1)]
+    rows, mismatched, unordered = [], [], []
+    running = 0
+    for e in ends:
+        end_total = sum(s["score"] for s in e["shots"])
+        running += end_total
+        row = {"End": e["end"], "End Total": end_total, "Running Total": running}
+        for shot_id, s in zip(shot_ids, e["shots"]):
+            row[shot_id] = "X" if s["is_x"] else str(s["score"])
+        rows.append(row)
+        if e["stored_total"] is not None and e["stored_total"] != end_total:
+            mismatched.append((len(rows) - 1, e["end"], e["stored_total"], end_total))
+        if not e["ordered"]:
+            unordered.append(e["end"])
+
+    divider = {"borderLeft": "2px solid #6c757d"}
+    table = DataTable(
+        columns=[{"name": "End", "id": "End", "type": "numeric"}]
+        + [{"name": str(i), "id": shot_id} for i, shot_id in enumerate(shot_ids, start=1)]
+        + [
+            {"name": "End Total", "id": "End Total", "type": "numeric"},
+            {"name": "Running Total", "id": "Running Total", "type": "numeric"},
+        ],
+        data=rows,
+        style_table={"overflowX": "auto", "maxWidth": f"{240 + 56 * width}px"},
+        style_cell={"textAlign": "center", "padding": "6px", "fontSize": "13px"},
+        style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
+        style_cell_conditional=[
+            {"if": {"column_id": "End"}, "fontWeight": "bold"},
+            {"if": {"column_id": "End Total"}, **divider, "fontWeight": "bold"},
+            {"if": {"column_id": "Running Total"}, **divider, "fontWeight": "bold"},
+        ],
+        style_data_conditional=[
+            {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"},
+            *[{"if": {"row_index": i}, "backgroundColor": "#fff3cd"} for i, *_ in mismatched],
+        ],
+    )
+
+    num_shots = sum(len(e["shots"]) for e in ends)
+    num_x = sum(s["is_x"] for e in ends for s in e["shots"])
+    summary = f"{len(ends)} ends · {num_shots} shots · total {running}"
+    if num_shots:
+        summary += f" · avg {running / num_shots:.2f}"
+    if num_x:
+        summary += f" · {num_x} X"
+    notes = [html.Small(summary, className="text-muted d-block")]
+    for _i, end, stored, shown in mismatched:
+        notes.append(html.Small(
+            f"End {end}: stored end total is {stored}, but its recorded shots add up to {shown}.",
+            className="d-block fw-bold",
+        ))
+    if unordered:
+        notes.append(html.Small(
+            "Shots were not recorded in order for end(s) " + ", ".join(map(str, unordered)) + ".",
+            className="text-muted d-block",
+        ))
+    return html.Div([header, table, *notes])
+
+
+# Callback: show the shot-by-shot record when a round is selected
+@callback(
+    Output("archery-shots-detail", "children"),
+    Input("archery-rounds-datatable", "selected_rows"),
+    Input("archery-rounds-columns", "value"),
+    Input("ar-refresh-store", "data"),
+    Input("archery-rounds-filter-id", "value"),
+    Input("archery-rounds-filter-dates", "start_date"),
+    Input("archery-rounds-filter-dates", "end_date"),
+    State("archery-rounds-datatable", "data"),
+)
+def show_round_shots(selected_rows, _columns, _refresh, _id, _start, _end, table_data):
+    # changing columns or filters, or saving a round, rebuilds the table, so drop any open record
+    if ctx.triggered_id != "archery-rounds-datatable" or not selected_rows or not table_data:
+        return None
+    round_row = table_data[selected_rows[0]]
+    return render_round_shots(round_row, get_round_ends(round_row["ID"]))
 
 @callback(
     Output("shots-total", "children"),
