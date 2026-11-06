@@ -433,7 +433,7 @@ layout = dbc.Container(
                                 html.Label("Expense Source"),
                                 dcc.Dropdown(
                                     id="trans-source",
-                                    options=get_source_options(),
+                                    options=[],  # filled on page load, so new sources appear without a restart
                                     placeholder="Select source",
                                 ),
                             ], md=6),
@@ -828,13 +828,16 @@ def populate_subcategory_filter(category):
     return options, None, False
 
 
-# Callback: list every expense_source row in the source filter
+# Callback: list every expense_source row in the entry form and the source filter,
+# on each page load and after each new transaction
 @callback(
+    Output("trans-source", "options"),
     Output("trans-filter-source", "options"),
     Input("trans-refresh-trigger", "data"),
 )
 def populate_source_filter(_trigger):
-    return get_source_options()
+    options = get_source_options()
+    return options, options
 
 
 # Callback: filter transactions table
