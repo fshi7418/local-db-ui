@@ -430,726 +430,729 @@ _END_FIELD_OUTPUTS = [Output(fid, "value", allow_duplicate=True) for fid, _ in _
 
 # ── Layout ──────────────────────────────────────────────────────────────────────
 
-layout = dbc.Container(
-    [
-        dbc.Row(dbc.Col(html.H2("Firearms"), width=12), className="mb-4"),
+# A function, so Dash rebuilds the layout on every page load and the dropdowns
+# pick up rows added to the database since the app started.
+def layout():
+    return dbc.Container(
+        [
+            dbc.Row(dbc.Col(html.H2("Firearms"), width=12), className="mb-4"),
 
-        # ── Table of contents ─────────────────────────────────────────────────────
-        dbc.Row(
-            dbc.Col(
-                dbc.Card(dbc.CardBody([
-                    html.H5("On this page", className="card-title"),
-                    html.Ul(
-                        [
-                            html.Li(html.A(label, href=f"#{anchor}", className="text-decoration-none"))
-                            for label, anchor in [
-                                ("Add Firearm Visit", "section-add-visit"),
-                                ("Add End", "section-add-end"),
-                                ("Visits", "section-visits"),
-                                ("Shots by Model", "section-shots-by-model"),
-                                ("Ammunition", "section-ammunition"),
-                                ("Shots by Ammunition", "section-shots-by-ammunition"),
-                                ("Cartridges", "section-cartridges"),
-                                ("Shots by Cartridge", "section-shots-by-cartridge"),
-                            ]
-                        ],
-                        className="mb-0",
-                    ),
-                ])),
-                width=12,
+            # ── Table of contents ─────────────────────────────────────────────────────
+            dbc.Row(
+                dbc.Col(
+                    dbc.Card(dbc.CardBody([
+                        html.H5("On this page", className="card-title"),
+                        html.Ul(
+                            [
+                                html.Li(html.A(label, href=f"#{anchor}", className="text-decoration-none"))
+                                for label, anchor in [
+                                    ("Add Firearm Visit", "section-add-visit"),
+                                    ("Add End", "section-add-end"),
+                                    ("Visits", "section-visits"),
+                                    ("Shots by Model", "section-shots-by-model"),
+                                    ("Ammunition", "section-ammunition"),
+                                    ("Shots by Ammunition", "section-shots-by-ammunition"),
+                                    ("Cartridges", "section-cartridges"),
+                                    ("Shots by Cartridge", "section-shots-by-cartridge"),
+                                ]
+                            ],
+                            className="mb-0",
+                        ),
+                    ])),
+                    width=12,
+                ),
+                className="mb-4",
             ),
-            className="mb-4",
-        ),
 
-        # ── Visit form ────────────────────────────────────────────────────────────
-        dbc.Row(
-            dbc.Col(
-                dbc.Card(dbc.CardBody([
-                    html.H4("Add Firearm Visit", className="card-title", id="section-add-visit"),
+            # ── Visit form ────────────────────────────────────────────────────────────
+            dbc.Row(
+                dbc.Col(
+                    dbc.Card(dbc.CardBody([
+                        html.H4("Add Firearm Visit", className="card-title", id="section-add-visit"),
 
-                    dbc.Row([
-                        dbc.Col([
-                            html.Label("Is this today?"),
-                            dbc.RadioItems(
-                                id="fv-is-today",
-                                options=[
-                                    {"label": " Yes", "value": True},
-                                    {"label": " No", "value": False},
-                                ],
-                                value=True,
-                                inline=True,
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("Is this today?"),
+                                dbc.RadioItems(
+                                    id="fv-is-today",
+                                    options=[
+                                        {"label": " Yes", "value": True},
+                                        {"label": " No", "value": False},
+                                    ],
+                                    value=True,
+                                    inline=True,
+                                ),
+                            ], md=4),
+                            dbc.Col([
+                                html.Label("Date (if not today)"),
+                                dcc.DatePickerSingle(
+                                    id="fv-date",
+                                    date=datetime.now().date(),
+                                    disabled=True,
+                                ),
+                            ], md=4),
+                        ], className="mb-3"),
+
+                        dbc.Row(
+                            dbc.Col([
+                                html.Label("Range"),
+                                dcc.Dropdown(
+                                    id="fv-range",
+                                    options=get_firearm_ranges(),
+                                    placeholder="Select range",
+                                ),
+                            ], md=6),
+                            className="mb-3",
+                        ),
+
+                        dbc.Row([
+                            dbc.Col([
+                                html.Label("Start Time (HHMM, optional)"),
+                                dbc.Input(id="fv-time-start", placeholder="1030"),
+                            ], md=3),
+                            dbc.Col([
+                                html.Label("End Time (HHMM, optional)"),
+                                dbc.Input(id="fv-time-end", placeholder="1230"),
+                            ], md=3),
+                        ], className="mb-3"),
+
+                        dbc.Row(
+                            dbc.Col(
+                                dbc.Button("Create Visit", id="fv-create-btn", color="primary"),
+                                md=4,
                             ),
-                        ], md=4),
-                        dbc.Col([
-                            html.Label("Date (if not today)"),
-                            dcc.DatePickerSingle(
-                                id="fv-date",
-                                date=datetime.now().date(),
-                                disabled=True,
-                            ),
-                        ], md=4),
-                    ], className="mb-3"),
+                        ),
+                    ])),
+                    width=12,
+                ),
+                className="mb-3",
+            ),
 
+            dbc.Row(dbc.Col(html.Div(id="fv-alert"), width=12), className="mb-2"),
+
+            # ── End form (revealed after visit is created) ────────────────────────────
+            dbc.Collapse(
+                id="fe-collapse",
+                is_open=False,
+                children=dbc.Card(dbc.CardBody([
+                    html.H4("Add End", className="card-title", id="section-add-end"),
+                    html.Div(id="fv-visit-badge"),
+                    html.Hr(),
+
+                    # Firearm model
                     dbc.Row(
                         dbc.Col([
-                            html.Label("Range"),
+                            html.Label("Firearm Model *"),
                             dcc.Dropdown(
-                                id="fv-range",
-                                options=get_firearm_ranges(),
-                                placeholder="Select range",
+                                id="fe-model",
+                                options=get_firearm_models(),
+                                placeholder="Select model",
                             ),
                         ], md=6),
                         className="mb-3",
                     ),
 
+                    # Ammunition / Cartridge toggle
+                    dbc.Row(
+                        dbc.Col([
+                            html.Label("Ammunition"),
+                            dbc.RadioItems(
+                                id="fe-ammo-type",
+                                options=[
+                                    {"label": " Select by Ammunition", "value": "ammo"},
+                                    {"label": " Select by Cartridge", "value": "cartridge"},
+                                ],
+                                value="ammo",
+                                inline=True,
+                            ),
+                        ], md=12),
+                        className="mb-2",
+                    ),
+                    dbc.Row([
+                        dbc.Col(
+                            dcc.Dropdown(
+                                id="fe-ammo",
+                                options=get_firearm_ammunition(),
+                                placeholder="Select ammunition",
+                            ),
+                            md=6, id="fe-ammo-col",
+                        ),
+                        dbc.Col(
+                            dcc.Dropdown(
+                                id="fe-cartridge",
+                                options=get_firearm_cartridges(),
+                                placeholder="Select cartridge",
+                            ),
+                            md=6, id="fe-cartridge-col",
+                        ),
+                    ], className="mb-3"),
+
+                    # Quantity + Distance
                     dbc.Row([
                         dbc.Col([
-                            html.Label("Start Time (HHMM, optional)"),
-                            dbc.Input(id="fv-time-start", placeholder="1030"),
+                            html.Label("Quantity (optional)"),
+                            dbc.Input(id="fe-quantity", type="number", min=0),
+                        ], md=2),
+                        dbc.Col([
+                            html.Label("Distance Unit"),
+                            dbc.RadioItems(
+                                id="fe-dist-unit",
+                                options=[
+                                    {"label": " yd", "value": "yd"},
+                                    {"label": " m", "value": "m"},
+                                ],
+                                value="yd",
+                                inline=True,
+                            ),
+                        ], md=2),
+                        dbc.Col([
+                            html.Label("Distance (optional)"),
+                            dbc.Input(id="fe-distance", type="number", min=0),
+                        ], md=2),
+                    ], className="mb-3"),
+
+                    # Target + scores
+                    dbc.Row([
+                        dbc.Col([
+                            html.Label("Target (optional)"),
+                            dcc.Dropdown(
+                                id="fe-target",
+                                options=get_firearm_targets(),
+                                placeholder="Select target",
+                            ),
+                        ], md=4),
+                        dbc.Col([
+                            html.Label("Shots Scored (optional)"),
+                            dbc.Input(id="fe-shots-scored", type="number", min=0),
+                        ], md=2),
+                        dbc.Col([
+                            html.Label("Pts of Stabilisation (optional)"),
+                            dbc.Input(id="fe-pts-stab", type="number", min=0),
                         ], md=3),
                         dbc.Col([
-                            html.Label("End Time (HHMM, optional)"),
-                            dbc.Input(id="fv-time-end", placeholder="1230"),
+                            html.Label("Supporting Hands (optional)"),
+                            dbc.Input(id="fe-support-hands", type="number", min=0),
                         ], md=3),
                     ], className="mb-3"),
 
+                    # Sight + Stance
+                    dbc.Row([
+                        dbc.Col([
+                            html.Label("Sight (optional)"),
+                            dcc.Dropdown(
+                                id="fe-sight",
+                                options=get_firearm_sights(),
+                                placeholder="Select sight",
+                            ),
+                        ], md=4),
+                        dbc.Col([
+                            html.Label("Stance (optional)"),
+                            dcc.Dropdown(
+                                id="fe-stance",
+                                options=STANCE_OPTIONS,
+                                placeholder="Select stance",
+                            ),
+                        ], md=4),
+                    ], className="mb-3"),
+
+                    # Remarks
                     dbc.Row(
-                        dbc.Col(
-                            dbc.Button("Create Visit", id="fv-create-btn", color="primary"),
-                            md=4,
-                        ),
+                        dbc.Col([
+                            html.Label("Remarks (optional)"),
+                            dbc.Textarea(
+                                id="fe-remarks",
+                                placeholder="Free-form notes about this end",
+                                style={"height": "80px"},
+                            ),
+                        ], md=8),
+                        className="mb-3",
                     ),
-                ])),
-                width=12,
-            ),
-            className="mb-3",
-        ),
 
-        dbc.Row(dbc.Col(html.Div(id="fv-alert"), width=12), className="mb-2"),
-
-        # ── End form (revealed after visit is created) ────────────────────────────
-        dbc.Collapse(
-            id="fe-collapse",
-            is_open=False,
-            children=dbc.Card(dbc.CardBody([
-                html.H4("Add End", className="card-title", id="section-add-end"),
-                html.Div(id="fv-visit-badge"),
-                html.Hr(),
-
-                # Firearm model
-                dbc.Row(
-                    dbc.Col([
-                        html.Label("Firearm Model *"),
-                        dcc.Dropdown(
-                            id="fe-model",
-                            options=get_firearm_models(),
-                            placeholder="Select model",
-                        ),
-                    ], md=6),
-                    className="mb-3",
-                ),
-
-                # Ammunition / Cartridge toggle
-                dbc.Row(
-                    dbc.Col([
-                        html.Label("Ammunition"),
-                        dbc.RadioItems(
-                            id="fe-ammo-type",
-                            options=[
-                                {"label": " Select by Ammunition", "value": "ammo"},
-                                {"label": " Select by Cartridge", "value": "cartridge"},
-                            ],
-                            value="ammo",
-                            inline=True,
-                        ),
-                    ], md=12),
-                    className="mb-2",
-                ),
-                dbc.Row([
-                    dbc.Col(
-                        dcc.Dropdown(
-                            id="fe-ammo",
-                            options=get_firearm_ammunition(),
-                            placeholder="Select ammunition",
-                        ),
-                        md=6, id="fe-ammo-col",
+                    # Trap round toggle
+                    dbc.Row(
+                        dbc.Col([
+                            html.Label("Is this a Trap Round?"),
+                            dbc.RadioItems(
+                                id="fe-is-trap",
+                                options=[
+                                    {"label": " Yes", "value": True},
+                                    {"label": " No", "value": False},
+                                ],
+                                value=False,
+                                inline=True,
+                            ),
+                        ], md=6),
+                        className="mb-2",
                     ),
-                    dbc.Col(
-                        dcc.Dropdown(
-                            id="fe-cartridge",
-                            options=get_firearm_cartridges(),
-                            placeholder="Select cartridge",
-                        ),
-                        md=6, id="fe-cartridge-col",
-                    ),
-                ], className="mb-3"),
 
-                # Quantity + Distance
-                dbc.Row([
-                    dbc.Col([
-                        html.Label("Quantity (optional)"),
-                        dbc.Input(id="fe-quantity", type="number", min=0),
-                    ], md=2),
-                    dbc.Col([
-                        html.Label("Distance Unit"),
-                        dbc.RadioItems(
-                            id="fe-dist-unit",
-                            options=[
-                                {"label": " yd", "value": "yd"},
-                                {"label": " m", "value": "m"},
-                            ],
-                            value="yd",
-                            inline=True,
-                        ),
-                    ], md=2),
-                    dbc.Col([
-                        html.Label("Distance (optional)"),
-                        dbc.Input(id="fe-distance", type="number", min=0),
-                    ], md=2),
-                ], className="mb-3"),
-
-                # Target + scores
-                dbc.Row([
-                    dbc.Col([
-                        html.Label("Target (optional)"),
-                        dcc.Dropdown(
-                            id="fe-target",
-                            options=get_firearm_targets(),
-                            placeholder="Select target",
-                        ),
-                    ], md=4),
-                    dbc.Col([
-                        html.Label("Shots Scored (optional)"),
-                        dbc.Input(id="fe-shots-scored", type="number", min=0),
-                    ], md=2),
-                    dbc.Col([
-                        html.Label("Pts of Stabilisation (optional)"),
-                        dbc.Input(id="fe-pts-stab", type="number", min=0),
-                    ], md=3),
-                    dbc.Col([
-                        html.Label("Supporting Hands (optional)"),
-                        dbc.Input(id="fe-support-hands", type="number", min=0),
-                    ], md=3),
-                ], className="mb-3"),
-
-                # Sight + Stance
-                dbc.Row([
-                    dbc.Col([
-                        html.Label("Sight (optional)"),
-                        dcc.Dropdown(
-                            id="fe-sight",
-                            options=get_firearm_sights(),
-                            placeholder="Select sight",
-                        ),
-                    ], md=4),
-                    dbc.Col([
-                        html.Label("Stance (optional)"),
-                        dcc.Dropdown(
-                            id="fe-stance",
-                            options=STANCE_OPTIONS,
-                            placeholder="Select stance",
-                        ),
-                    ], md=4),
-                ], className="mb-3"),
-
-                # Remarks
-                dbc.Row(
-                    dbc.Col([
-                        html.Label("Remarks (optional)"),
-                        dbc.Textarea(
-                            id="fe-remarks",
-                            placeholder="Free-form notes about this end",
-                            style={"height": "80px"},
-                        ),
-                    ], md=8),
-                    className="mb-3",
-                ),
-
-                # Trap round toggle
-                dbc.Row(
-                    dbc.Col([
-                        html.Label("Is this a Trap Round?"),
-                        dbc.RadioItems(
-                            id="fe-is-trap",
-                            options=[
-                                {"label": " Yes", "value": True},
-                                {"label": " No", "value": False},
-                            ],
-                            value=False,
-                            inline=True,
-                        ),
-                    ], md=6),
-                    className="mb-2",
-                ),
-
-                # Trap round details (collapsible)
-                dbc.Collapse(
-                    id="fe-trap-collapse",
-                    is_open=False,
-                    children=dbc.Card(dbc.CardBody([
-                        html.H6("Trap Round Details"),
-                        dbc.Row([
-                            dbc.Col([
-                                html.Label("Distance Unit"),
-                                dbc.RadioItems(
-                                    id="fe-trap-dist-unit",
-                                    options=[
-                                        {"label": " yd", "value": "yd"},
-                                        {"label": " m", "value": "m"},
-                                    ],
-                                    value="yd",
-                                    inline=True,
-                                ),
-                            ], md=2),
-                            dbc.Col([
-                                html.Label("Distance (optional)"),
-                                dbc.Input(id="fe-trap-distance", type="number", min=0),
-                            ], md=2),
-                            dbc.Col([
-                                html.Label("Style"),
-                                dcc.Dropdown(
-                                    id="fe-trap-style",
-                                    options=TRAP_STYLE_OPTIONS,
-                                    placeholder="Select style",
-                                ),
-                            ], md=3),
-                            dbc.Col([
-                                html.Label("Num Breaks (optional)"),
-                                dbc.Input(id="fe-trap-num-break", type="number", min=0),
-                            ], md=2),
-                            dbc.Col([
-                                html.Label("Starting Station (optional)"),
-                                dbc.Input(id="fe-trap-start-station", type="number", min=1, max=5),
-                            ], md=2),
-                        ], className="mb-3"),
-                        dbc.Row([
-                            dbc.Col([
-                                html.Label("Choke 1 (optional)"),
-                                dcc.Dropdown(
-                                    id="fe-trap-choke1",
-                                    options=get_shotgun_chokes(),
-                                    placeholder="Select choke",
-                                ),
-                            ], md=5),
-                            dbc.Col([
-                                html.Label("Choke 2 (optional)"),
-                                dcc.Dropdown(
-                                    id="fe-trap-choke2",
-                                    options=get_shotgun_chokes(),
-                                    placeholder="Select choke",
-                                ),
-                            ], md=5),
-                        ], className="mb-3"),
-                        dbc.Row(
-                            dbc.Col([
-                                html.Label("Breaks by station?"),
-                                dbc.RadioItems(
-                                    id="fe-trap-by-station",
-                                    options=[
-                                        {"label": " Yes", "value": True},
-                                        {"label": " No", "value": False},
-                                    ],
-                                    value=False,
-                                    inline=True,
-                                ),
-                            ], md=6),
-                            className="mb-2",
-                        ),
-                        dbc.Collapse(
-                            id="fe-station-collapse",
-                            is_open=False,
-                            children=dbc.Row([
+                    # Trap round details (collapsible)
+                    dbc.Collapse(
+                        id="fe-trap-collapse",
+                        is_open=False,
+                        children=dbc.Card(dbc.CardBody([
+                            html.H6("Trap Round Details"),
+                            dbc.Row([
                                 dbc.Col([
-                                    html.Label(f"Station {i}"),
-                                    dbc.Input(
-                                        id=f"fe-station-{i}",
-                                        type="number",
-                                        min=0,
-                                        placeholder="Breaks",
+                                    html.Label("Distance Unit"),
+                                    dbc.RadioItems(
+                                        id="fe-trap-dist-unit",
+                                        options=[
+                                            {"label": " yd", "value": "yd"},
+                                            {"label": " m", "value": "m"},
+                                        ],
+                                        value="yd",
+                                        inline=True,
                                     ),
-                                ], md=2)
-                                for i in range(1, 6)
-                            ]),
-                        ),
-                        dbc.Row(
-                            dbc.Col([
-                                html.Label("Remarks (optional)"),
-                                dbc.Textarea(
-                                    id="fe-trap-remarks",
-                                    placeholder="Free-form notes about this trap round",
-                                    style={"height": "80px"},
-                                ),
-                            ], md=10),
-                            className="mb-3 mt-3",
-                        ),
-                    ]), className="bg-light"),
-                ),
+                                ], md=2),
+                                dbc.Col([
+                                    html.Label("Distance (optional)"),
+                                    dbc.Input(id="fe-trap-distance", type="number", min=0),
+                                ], md=2),
+                                dbc.Col([
+                                    html.Label("Style"),
+                                    dcc.Dropdown(
+                                        id="fe-trap-style",
+                                        options=TRAP_STYLE_OPTIONS,
+                                        placeholder="Select style",
+                                    ),
+                                ], md=3),
+                                dbc.Col([
+                                    html.Label("Num Breaks (optional)"),
+                                    dbc.Input(id="fe-trap-num-break", type="number", min=0),
+                                ], md=2),
+                                dbc.Col([
+                                    html.Label("Starting Station (optional)"),
+                                    dbc.Input(id="fe-trap-start-station", type="number", min=1, max=5),
+                                ], md=2),
+                            ], className="mb-3"),
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Label("Choke 1 (optional)"),
+                                    dcc.Dropdown(
+                                        id="fe-trap-choke1",
+                                        options=get_shotgun_chokes(),
+                                        placeholder="Select choke",
+                                    ),
+                                ], md=5),
+                                dbc.Col([
+                                    html.Label("Choke 2 (optional)"),
+                                    dcc.Dropdown(
+                                        id="fe-trap-choke2",
+                                        options=get_shotgun_chokes(),
+                                        placeholder="Select choke",
+                                    ),
+                                ], md=5),
+                            ], className="mb-3"),
+                            dbc.Row(
+                                dbc.Col([
+                                    html.Label("Breaks by station?"),
+                                    dbc.RadioItems(
+                                        id="fe-trap-by-station",
+                                        options=[
+                                            {"label": " Yes", "value": True},
+                                            {"label": " No", "value": False},
+                                        ],
+                                        value=False,
+                                        inline=True,
+                                    ),
+                                ], md=6),
+                                className="mb-2",
+                            ),
+                            dbc.Collapse(
+                                id="fe-station-collapse",
+                                is_open=False,
+                                children=dbc.Row([
+                                    dbc.Col([
+                                        html.Label(f"Station {i}"),
+                                        dbc.Input(
+                                            id=f"fe-station-{i}",
+                                            type="number",
+                                            min=0,
+                                            placeholder="Breaks",
+                                        ),
+                                    ], md=2)
+                                    for i in range(1, 6)
+                                ]),
+                            ),
+                            dbc.Row(
+                                dbc.Col([
+                                    html.Label("Remarks (optional)"),
+                                    dbc.Textarea(
+                                        id="fe-trap-remarks",
+                                        placeholder="Free-form notes about this trap round",
+                                        style={"height": "80px"},
+                                    ),
+                                ], md=10),
+                                className="mb-3 mt-3",
+                            ),
+                        ]), className="bg-light"),
+                    ),
 
-                # Skeet round toggle
-                dbc.Row(
-                    dbc.Col([
-                        html.Label("Is this a Skeet Round?"),
-                        dbc.RadioItems(
-                            id="fe-is-skeet",
-                            options=[
-                                {"label": " Yes", "value": True},
-                                {"label": " No", "value": False},
-                            ],
-                            value=False,
-                            inline=True,
-                        ),
-                    ], md=6),
-                    className="mb-2 mt-2",
-                ),
+                    # Skeet round toggle
+                    dbc.Row(
+                        dbc.Col([
+                            html.Label("Is this a Skeet Round?"),
+                            dbc.RadioItems(
+                                id="fe-is-skeet",
+                                options=[
+                                    {"label": " Yes", "value": True},
+                                    {"label": " No", "value": False},
+                                ],
+                                value=False,
+                                inline=True,
+                            ),
+                        ], md=6),
+                        className="mb-2 mt-2",
+                    ),
 
-                # Skeet round details (collapsible)
-                dbc.Collapse(
-                    id="fe-skeet-collapse",
-                    is_open=False,
-                    children=dbc.Card(dbc.CardBody([
-                        html.H6("Skeet Round Details"),
-                        dbc.Row([
-                            dbc.Col([
-                                html.Label("Discipline *"),
-                                dcc.Dropdown(
-                                    id="fe-skeet-discipline",
-                                    options=SKEET_STYLE_OPTIONS,
-                                    placeholder="Select discipline",
-                                ),
-                            ], md=3),
-                            dbc.Col([
-                                html.Label("Sequence (defaults to discipline)"),
-                                dcc.Dropdown(
-                                    id="fe-skeet-sequence",
-                                    options=SKEET_SEQUENCE_OPTIONS,
-                                    placeholder="Same as discipline",
-                                ),
-                            ], md=3),
-                            dbc.Col([
-                                html.Label("Num Breaks (optional)"),
-                                dbc.Input(id="fe-skeet-num-break", type="number", min=0),
-                            ], md=2),
-                            dbc.Col([
-                                html.Label("Low Gun Start?"),
-                                dbc.RadioItems(
-                                    id="fe-skeet-low-gun-start",
-                                    options=[
-                                        {"label": " Yes", "value": True},
-                                        {"label": " No", "value": False},
-                                    ],
-                                    value=False,
-                                    inline=True,
-                                ),
-                            ], md=3),
-                        ], className="mb-3"),
-                        dbc.Row([
-                            dbc.Col([
-                                html.Label("Choke 1 (optional)"),
-                                dcc.Dropdown(
-                                    id="fe-skeet-choke1",
-                                    options=get_shotgun_chokes(),
-                                    placeholder="Select choke",
-                                ),
-                            ], md=5),
-                            dbc.Col([
-                                html.Label("Choke 2 (optional)"),
-                                dcc.Dropdown(
-                                    id="fe-skeet-choke2",
-                                    options=get_shotgun_chokes(),
-                                    placeholder="Select choke",
-                                ),
-                            ], md=5),
-                        ], className="mb-3"),
-                        dbc.Row(
-                            dbc.Col([
-                                html.Label("Remarks (optional)"),
-                                dbc.Textarea(
-                                    id="fe-skeet-remarks",
-                                    placeholder="Free-form notes about this skeet round",
-                                    style={"height": "80px"},
-                                ),
-                            ], md=10),
+                    # Skeet round details (collapsible)
+                    dbc.Collapse(
+                        id="fe-skeet-collapse",
+                        is_open=False,
+                        children=dbc.Card(dbc.CardBody([
+                            html.H6("Skeet Round Details"),
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Label("Discipline *"),
+                                    dcc.Dropdown(
+                                        id="fe-skeet-discipline",
+                                        options=SKEET_STYLE_OPTIONS,
+                                        placeholder="Select discipline",
+                                    ),
+                                ], md=3),
+                                dbc.Col([
+                                    html.Label("Sequence (defaults to discipline)"),
+                                    dcc.Dropdown(
+                                        id="fe-skeet-sequence",
+                                        options=SKEET_SEQUENCE_OPTIONS,
+                                        placeholder="Same as discipline",
+                                    ),
+                                ], md=3),
+                                dbc.Col([
+                                    html.Label("Num Breaks (optional)"),
+                                    dbc.Input(id="fe-skeet-num-break", type="number", min=0),
+                                ], md=2),
+                                dbc.Col([
+                                    html.Label("Low Gun Start?"),
+                                    dbc.RadioItems(
+                                        id="fe-skeet-low-gun-start",
+                                        options=[
+                                            {"label": " Yes", "value": True},
+                                            {"label": " No", "value": False},
+                                        ],
+                                        value=False,
+                                        inline=True,
+                                    ),
+                                ], md=3),
+                            ], className="mb-3"),
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Label("Choke 1 (optional)"),
+                                    dcc.Dropdown(
+                                        id="fe-skeet-choke1",
+                                        options=get_shotgun_chokes(),
+                                        placeholder="Select choke",
+                                    ),
+                                ], md=5),
+                                dbc.Col([
+                                    html.Label("Choke 2 (optional)"),
+                                    dcc.Dropdown(
+                                        id="fe-skeet-choke2",
+                                        options=get_shotgun_chokes(),
+                                        placeholder="Select choke",
+                                    ),
+                                ], md=5),
+                            ], className="mb-3"),
+                            dbc.Row(
+                                dbc.Col([
+                                    html.Label("Remarks (optional)"),
+                                    dbc.Textarea(
+                                        id="fe-skeet-remarks",
+                                        placeholder="Free-form notes about this skeet round",
+                                        style={"height": "80px"},
+                                    ),
+                                ], md=10),
+                                className="mb-3",
+                            ),
+                            dbc.Row(
+                                dbc.Col([
+                                    html.Label("Record shot-by-shot?"),
+                                    dbc.RadioItems(
+                                        id="fe-skeet-by-shot",
+                                        options=[
+                                            {"label": " Yes", "value": True},
+                                            {"label": " No", "value": False},
+                                        ],
+                                        value=False,
+                                        inline=True,
+                                    ),
+                                ], md=6),
+                                className="mb-2",
+                            ),
+                            dbc.Collapse(
+                                id="fe-skeet-shots-collapse",
+                                is_open=False,
+                                children=[
+                                    html.Small(id="fe-skeet-shots-hint", className="text-muted"),
+                                    DataTable(
+                                        id="fe-skeet-shots-table",
+                                        columns=[],
+                                        data=[],
+                                        editable=True,
+                                        style_table={"overflowX": "auto"},
+                                        style_cell=SHOT_CELL_STYLE,
+                                        style_header=SHOT_HEADER_STYLE,
+                                    ),
+                                ],
+                            ),
+                        ]), className="bg-light"),
+                    ),
+
+                    # Double trap round toggle
+                    dbc.Row(
+                        dbc.Col([
+                            html.Label("Is this a Double Trap Round?"),
+                            dbc.RadioItems(
+                                id="fe-is-double-trap",
+                                options=[
+                                    {"label": " Yes", "value": True},
+                                    {"label": " No", "value": False},
+                                ],
+                                value=False,
+                                inline=True,
+                            ),
+                        ], md=6),
+                        className="mb-2 mt-2",
+                    ),
+
+                    # Double trap round details (collapsible)
+                    dbc.Collapse(
+                        id="fe-double-trap-collapse",
+                        is_open=False,
+                        children=dbc.Card(dbc.CardBody([
+                            html.H6("Double Trap Round Details"),
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Label("Distance Unit"),
+                                    dbc.RadioItems(
+                                        id="fe-dt-dist-unit",
+                                        options=[
+                                            {"label": " yd", "value": "yd"},
+                                            {"label": " m", "value": "m"},
+                                        ],
+                                        value="yd",
+                                        inline=True,
+                                    ),
+                                ], md=2),
+                                dbc.Col([
+                                    html.Label("Distance (optional)"),
+                                    dbc.Input(id="fe-dt-distance", type="number", min=0),
+                                ], md=2),
+                                dbc.Col([
+                                    html.Label("Style"),
+                                    dcc.Dropdown(
+                                        id="fe-dt-style",
+                                        options=DOUBLE_TRAP_STYLE_OPTIONS,
+                                        placeholder="Select style",
+                                    ),
+                                ], md=3),
+                                dbc.Col([
+                                    html.Label("Num Breaks (optional)"),
+                                    dbc.Input(id="fe-dt-num-break", type="number", min=0),
+                                ], md=2),
+                                dbc.Col([
+                                    html.Label("Starting Station (optional)"),
+                                    dbc.Input(id="fe-dt-start-station", type="number", min=1, max=5),
+                                ], md=2),
+                            ], className="mb-3"),
+                            dbc.Row([
+                                dbc.Col([
+                                    html.Label("Choke 1 (optional)"),
+                                    dcc.Dropdown(
+                                        id="fe-dt-choke1",
+                                        options=get_shotgun_chokes(),
+                                        placeholder="Select choke",
+                                    ),
+                                ], md=5),
+                                dbc.Col([
+                                    html.Label("Choke 2 (optional)"),
+                                    dcc.Dropdown(
+                                        id="fe-dt-choke2",
+                                        options=get_shotgun_chokes(),
+                                        placeholder="Select choke",
+                                    ),
+                                ], md=5),
+                            ], className="mb-3"),
+                            dbc.Row(
+                                dbc.Col([
+                                    html.Label("Breaks by station?"),
+                                    dbc.RadioItems(
+                                        id="fe-dt-by-station",
+                                        options=[
+                                            {"label": " Yes", "value": True},
+                                            {"label": " No", "value": False},
+                                        ],
+                                        value=False,
+                                        inline=True,
+                                    ),
+                                ], md=6),
+                                className="mb-2",
+                            ),
+                            dbc.Collapse(
+                                id="fe-dt-station-collapse",
+                                is_open=False,
+                                children=dbc.Row([
+                                    dbc.Col([
+                                        html.Label(f"Station {i}"),
+                                        dbc.Input(
+                                            id=f"fe-dt-station-{i}",
+                                            type="number",
+                                            min=0,
+                                            placeholder="Breaks",
+                                        ),
+                                    ], md=2)
+                                    for i in range(1, 6)
+                                ]),
+                            ),
+                            dbc.Row(
+                                dbc.Col([
+                                    html.Label("Remarks (optional)"),
+                                    dbc.Textarea(
+                                        id="fe-dt-remarks",
+                                        placeholder="Free-form notes about this double trap round",
+                                        style={"height": "80px"},
+                                    ),
+                                ], md=10),
+                                className="mb-3 mt-3",
+                            ),
+                        ]), className="bg-light"),
+                    ),
+
+                    html.Hr(),
+                    dbc.Row([
+                        dbc.Col(
+                            dbc.Button("Add End", id="fe-add-btn", color="success"),
+                            md=2,
+                        ),
+                        dbc.Col(
+                            dbc.Button("Clear & Restart Visit", id="fv-reset-btn", color="secondary", outline=True),
+                            md=2,
+                        ),
+                    ], className="mt-2"),
+                ])),
+            ),
+
+            dbc.Row(dbc.Col(html.Div(id="fe-alert"), width=12), className="mb-2"),
+            dbc.Row(dbc.Col(html.Div(id="fe-ends-table"), width=12), className="mb-4"),
+
+            dbc.Row(
+                dbc.Col(
+                    dbc.Card(dbc.CardBody([
+                        html.H4("Visits", className="card-title", id="section-visits"),
+                        html.Div(id="visits-table"),
+                    ])),
+                    width=12,
+                ),
+                className="mb-4",
+            ),
+
+            dcc.Store(id="fv-visit-id-store", data=None),
+            dcc.Store(id="fe-ends-store", data=[]),
+
+            # ── Existing stats ────────────────────────────────────────────────────────
+            dbc.Row(
+                dbc.Col(
+                    dbc.Card(dbc.CardBody([
+                        html.H4("Shots by Model", className="card-title", id="section-shots-by-model"),
+                        html.Div(id="shots-by-model-table"),
+                    ])),
+                    width=12,
+                ),
+                className="mb-4",
+            ),
+
+            dbc.Row(
+                dbc.Col(
+                    dbc.Card(dbc.CardBody([
+                        html.H4("Ammunition", className="card-title", id="section-ammunition"),
+                        html.Label("Columns to Display"),
+                        dcc.Dropdown(
+                            id="ammunition-columns",
+                            options=[{"label": col, "value": col} for col in AMMUNITION_COLUMNS],
+                            value=AMMUNITION_COLUMNS,
+                            multi=True,
+                            placeholder="Select columns",
                             className="mb-3",
                         ),
-                        dbc.Row(
-                            dbc.Col([
-                                html.Label("Record shot-by-shot?"),
-                                dbc.RadioItems(
-                                    id="fe-skeet-by-shot",
-                                    options=[
-                                        {"label": " Yes", "value": True},
-                                        {"label": " No", "value": False},
-                                    ],
-                                    value=False,
-                                    inline=True,
-                                ),
-                            ], md=6),
-                            className="mb-2",
-                        ),
-                        dbc.Collapse(
-                            id="fe-skeet-shots-collapse",
-                            is_open=False,
-                            children=[
-                                html.Small(id="fe-skeet-shots-hint", className="text-muted"),
-                                DataTable(
-                                    id="fe-skeet-shots-table",
-                                    columns=[],
-                                    data=[],
-                                    editable=True,
-                                    style_table={"overflowX": "auto"},
-                                    style_cell=SHOT_CELL_STYLE,
-                                    style_header=SHOT_HEADER_STYLE,
-                                ),
-                            ],
-                        ),
-                    ]), className="bg-light"),
+                        html.Div(id="ammunition-table"),
+                    ])),
+                    width=12,
                 ),
+                className="mb-4",
+            ),
 
-                # Double trap round toggle
-                dbc.Row(
-                    dbc.Col([
-                        html.Label("Is this a Double Trap Round?"),
-                        dbc.RadioItems(
-                            id="fe-is-double-trap",
-                            options=[
-                                {"label": " Yes", "value": True},
-                                {"label": " No", "value": False},
-                            ],
-                            value=False,
-                            inline=True,
+            dbc.Row(
+                dbc.Col(
+                    dbc.Card(dbc.CardBody([
+                        html.H4("Shots by Ammunition", className="card-title", id="section-shots-by-ammunition"),
+                        html.Label("Columns to Display"),
+                        dcc.Dropdown(
+                            id="shots-by-ammunition-columns",
+                            options=[{"label": col, "value": col} for col in SHOTS_BY_AMMUNITION_COLUMNS],
+                            value=SHOTS_BY_AMMUNITION_COLUMNS,
+                            multi=True,
+                            placeholder="Select columns",
+                            className="mb-3",
                         ),
-                    ], md=6),
-                    className="mb-2 mt-2",
+                        html.Div(id="shots-by-ammunition-table"),
+                    ])),
+                    width=12,
                 ),
+                className="mb-4",
+            ),
 
-                # Double trap round details (collapsible)
-                dbc.Collapse(
-                    id="fe-double-trap-collapse",
-                    is_open=False,
-                    children=dbc.Card(dbc.CardBody([
-                        html.H6("Double Trap Round Details"),
-                        dbc.Row([
-                            dbc.Col([
-                                html.Label("Distance Unit"),
-                                dbc.RadioItems(
-                                    id="fe-dt-dist-unit",
-                                    options=[
-                                        {"label": " yd", "value": "yd"},
-                                        {"label": " m", "value": "m"},
-                                    ],
-                                    value="yd",
-                                    inline=True,
-                                ),
-                            ], md=2),
-                            dbc.Col([
-                                html.Label("Distance (optional)"),
-                                dbc.Input(id="fe-dt-distance", type="number", min=0),
-                            ], md=2),
-                            dbc.Col([
-                                html.Label("Style"),
-                                dcc.Dropdown(
-                                    id="fe-dt-style",
-                                    options=DOUBLE_TRAP_STYLE_OPTIONS,
-                                    placeholder="Select style",
-                                ),
-                            ], md=3),
-                            dbc.Col([
-                                html.Label("Num Breaks (optional)"),
-                                dbc.Input(id="fe-dt-num-break", type="number", min=0),
-                            ], md=2),
-                            dbc.Col([
-                                html.Label("Starting Station (optional)"),
-                                dbc.Input(id="fe-dt-start-station", type="number", min=1, max=5),
-                            ], md=2),
-                        ], className="mb-3"),
-                        dbc.Row([
-                            dbc.Col([
-                                html.Label("Choke 1 (optional)"),
-                                dcc.Dropdown(
-                                    id="fe-dt-choke1",
-                                    options=get_shotgun_chokes(),
-                                    placeholder="Select choke",
-                                ),
-                            ], md=5),
-                            dbc.Col([
-                                html.Label("Choke 2 (optional)"),
-                                dcc.Dropdown(
-                                    id="fe-dt-choke2",
-                                    options=get_shotgun_chokes(),
-                                    placeholder="Select choke",
-                                ),
-                            ], md=5),
-                        ], className="mb-3"),
-                        dbc.Row(
-                            dbc.Col([
-                                html.Label("Breaks by station?"),
-                                dbc.RadioItems(
-                                    id="fe-dt-by-station",
-                                    options=[
-                                        {"label": " Yes", "value": True},
-                                        {"label": " No", "value": False},
-                                    ],
-                                    value=False,
-                                    inline=True,
-                                ),
-                            ], md=6),
-                            className="mb-2",
+            dbc.Row(
+                dbc.Col(
+                    dbc.Card(dbc.CardBody([
+                        html.H4("Cartridges", className="card-title", id="section-cartridges"),
+                        html.Label("Columns to Display"),
+                        dcc.Dropdown(
+                            id="cartridges-columns",
+                            options=[{"label": col, "value": col} for col in CARTRIDGE_COLUMNS],
+                            value=CARTRIDGE_COLUMNS,
+                            multi=True,
+                            placeholder="Select columns",
+                            className="mb-3",
                         ),
-                        dbc.Collapse(
-                            id="fe-dt-station-collapse",
-                            is_open=False,
-                            children=dbc.Row([
-                                dbc.Col([
-                                    html.Label(f"Station {i}"),
-                                    dbc.Input(
-                                        id=f"fe-dt-station-{i}",
-                                        type="number",
-                                        min=0,
-                                        placeholder="Breaks",
-                                    ),
-                                ], md=2)
-                                for i in range(1, 6)
-                            ]),
-                        ),
-                        dbc.Row(
-                            dbc.Col([
-                                html.Label("Remarks (optional)"),
-                                dbc.Textarea(
-                                    id="fe-dt-remarks",
-                                    placeholder="Free-form notes about this double trap round",
-                                    style={"height": "80px"},
-                                ),
-                            ], md=10),
-                            className="mb-3 mt-3",
-                        ),
-                    ]), className="bg-light"),
+                        html.Div(id="cartridges-table"),
+                    ])),
+                    width=12,
                 ),
-
-                html.Hr(),
-                dbc.Row([
-                    dbc.Col(
-                        dbc.Button("Add End", id="fe-add-btn", color="success"),
-                        md=2,
-                    ),
-                    dbc.Col(
-                        dbc.Button("Clear & Restart Visit", id="fv-reset-btn", color="secondary", outline=True),
-                        md=2,
-                    ),
-                ], className="mt-2"),
-            ])),
-        ),
-
-        dbc.Row(dbc.Col(html.Div(id="fe-alert"), width=12), className="mb-2"),
-        dbc.Row(dbc.Col(html.Div(id="fe-ends-table"), width=12), className="mb-4"),
-
-        dbc.Row(
-            dbc.Col(
-                dbc.Card(dbc.CardBody([
-                    html.H4("Visits", className="card-title", id="section-visits"),
-                    html.Div(id="visits-table"),
-                ])),
-                width=12,
+                className="mb-4",
             ),
-            className="mb-4",
-        ),
 
-        dcc.Store(id="fv-visit-id-store", data=None),
-        dcc.Store(id="fe-ends-store", data=[]),
-
-        # ── Existing stats ────────────────────────────────────────────────────────
-        dbc.Row(
-            dbc.Col(
-                dbc.Card(dbc.CardBody([
-                    html.H4("Shots by Model", className="card-title", id="section-shots-by-model"),
-                    html.Div(id="shots-by-model-table"),
-                ])),
-                width=12,
+            dbc.Row(
+                dbc.Col(
+                    dbc.Card(dbc.CardBody([
+                        html.H4("Shots by Cartridge", className="card-title", id="section-shots-by-cartridge"),
+                        html.Label("Columns to Display"),
+                        dcc.Dropdown(
+                            id="shots-by-cartridge-columns",
+                            options=[{"label": col, "value": col} for col in SHOTS_BY_CARTRIDGE_COLUMNS],
+                            value=SHOTS_BY_CARTRIDGE_COLUMNS,
+                            multi=True,
+                            placeholder="Select columns",
+                            className="mb-3",
+                        ),
+                        html.Div(id="shots-by-cartridge-table"),
+                    ])),
+                    width=12,
+                ),
+                className="mb-4",
             ),
-            className="mb-4",
-        ),
-
-        dbc.Row(
-            dbc.Col(
-                dbc.Card(dbc.CardBody([
-                    html.H4("Ammunition", className="card-title", id="section-ammunition"),
-                    html.Label("Columns to Display"),
-                    dcc.Dropdown(
-                        id="ammunition-columns",
-                        options=[{"label": col, "value": col} for col in AMMUNITION_COLUMNS],
-                        value=AMMUNITION_COLUMNS,
-                        multi=True,
-                        placeholder="Select columns",
-                        className="mb-3",
-                    ),
-                    html.Div(id="ammunition-table"),
-                ])),
-                width=12,
-            ),
-            className="mb-4",
-        ),
-
-        dbc.Row(
-            dbc.Col(
-                dbc.Card(dbc.CardBody([
-                    html.H4("Shots by Ammunition", className="card-title", id="section-shots-by-ammunition"),
-                    html.Label("Columns to Display"),
-                    dcc.Dropdown(
-                        id="shots-by-ammunition-columns",
-                        options=[{"label": col, "value": col} for col in SHOTS_BY_AMMUNITION_COLUMNS],
-                        value=SHOTS_BY_AMMUNITION_COLUMNS,
-                        multi=True,
-                        placeholder="Select columns",
-                        className="mb-3",
-                    ),
-                    html.Div(id="shots-by-ammunition-table"),
-                ])),
-                width=12,
-            ),
-            className="mb-4",
-        ),
-
-        dbc.Row(
-            dbc.Col(
-                dbc.Card(dbc.CardBody([
-                    html.H4("Cartridges", className="card-title", id="section-cartridges"),
-                    html.Label("Columns to Display"),
-                    dcc.Dropdown(
-                        id="cartridges-columns",
-                        options=[{"label": col, "value": col} for col in CARTRIDGE_COLUMNS],
-                        value=CARTRIDGE_COLUMNS,
-                        multi=True,
-                        placeholder="Select columns",
-                        className="mb-3",
-                    ),
-                    html.Div(id="cartridges-table"),
-                ])),
-                width=12,
-            ),
-            className="mb-4",
-        ),
-
-        dbc.Row(
-            dbc.Col(
-                dbc.Card(dbc.CardBody([
-                    html.H4("Shots by Cartridge", className="card-title", id="section-shots-by-cartridge"),
-                    html.Label("Columns to Display"),
-                    dcc.Dropdown(
-                        id="shots-by-cartridge-columns",
-                        options=[{"label": col, "value": col} for col in SHOTS_BY_CARTRIDGE_COLUMNS],
-                        value=SHOTS_BY_CARTRIDGE_COLUMNS,
-                        multi=True,
-                        placeholder="Select columns",
-                        className="mb-3",
-                    ),
-                    html.Div(id="shots-by-cartridge-table"),
-                ])),
-                width=12,
-            ),
-            className="mb-4",
-        ),
-    ],
-    fluid=True,
-)
+        ],
+        fluid=True,
+    )
 
 
 # ── Callbacks ───────────────────────────────────────────────────────────────────
