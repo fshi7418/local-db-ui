@@ -173,6 +173,61 @@ def get_visits_data():
         return []
 
 
+VISIT_END_COLUMNS = [
+    "End ID", "Firearm", "Cartridge", "Ammunition", "Shots", "Scored", "Distance (m)",
+    "Target", "Sight", "Sight Type", "Stance", "Hands", "Stabilisation Pts", "Remarks",
+]
+VISIT_END_DEFAULT_COLUMNS = ["End ID", "Firearm", "Cartridge", "Ammunition", "Shots", "Target", "Remarks"]
+
+
+def get_visit_ends(visit_id):
+    """Ends of one visit, with names in place of the ids they reference."""
+    try:
+        session = Session()
+        rows = session.execute(text("""
+            select
+                e.id,
+                coalesce(m.short_name, m.name) as firearm,
+                coalesce(car.short_name, car.name) as cartridge,
+                coalesce(a.short_name, a.name) as ammunition,
+                e.quantity, e.shots_scored, e.distance_m,
+                t.target_name, s.name as sight, s.type as sight_type,
+                e.stance, e.supporting_hands, e.points_of_stabilisation,
+                e.remarks
+            from firearm_end e
+            left join firearm_model m on m.id = e.firearm_model_id
+            left join firearm_cartridge car on car.id = e.firearm_cartridge_id
+            left join firearm_ammunition a on a.id = e.firearm_ammunition_id
+            left join firearm_target t on t.id = e.firearm_target_id
+            left join firearm_sight s on s.id = e.firearm_sight_id
+            where e.firearm_visit_id = :visit_id
+            order by e.id
+        """), {"visit_id": visit_id}).fetchall()
+        session.close()
+    except Exception as e:
+        print(f"Error querying visit ends: {e}")
+        return None
+    return [
+        {
+            "End ID": r[0],
+            "Firearm": r[1],
+            "Cartridge": r[2],
+            "Ammunition": r[3],
+            "Shots": r[4],
+            "Scored": r[5],
+            "Distance (m)": r[6],
+            "Target": r[7],
+            "Sight": r[8],
+            "Sight Type": r[9],
+            "Stance": r[10],
+            "Hands": r[11],
+            "Stabilisation Pts": r[12],
+            "Remarks": r[13],
+        }
+        for r in rows
+    ]
+
+
 def get_ammunition_data():
     try:
         session = Session()
@@ -1049,7 +1104,43 @@ def layout():
                 dbc.Col(
                     dbc.Card(dbc.CardBody([
                         html.H4("Visits", className="card-title", id="section-visits"),
+                        html.P("Select a visit to see its ends.", className="text-muted small"),
                         html.Div(id="visits-table"),
+                        DataTable(
+                            id="visits-datatable",
+                            columns=[],
+                            data=[],
+                            row_selectable="single",
+                            selected_rows=[],
+                            sort_action="native",
+                            filter_action="native",
+                            page_action="native",
+                            page_size=10,
+                            style_table={"overflowX": "auto"},
+                            style_cell={"textAlign": "left", "padding": "10px"},
+                            style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
+                            style_data_conditional=[
+                                {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"},
+                                {"if": {"state": "selected"}, "backgroundColor": "rgb(220, 235, 255)",
+                                 "border": "1px solid rgb(120, 160, 220)"},
+                            ],
+                        ),
+                        html.Div(
+                            [
+                                html.Label("Columns to Display"),
+                                dcc.Dropdown(
+                                    id="visit-ends-columns",
+                                    options=[{"label": c, "value": c} for c in VISIT_END_COLUMNS],
+                                    value=VISIT_END_DEFAULT_COLUMNS,
+                                    multi=True,
+                                    placeholder="Select columns",
+                                ),
+                            ],
+                            id="visit-ends-columns-wrapper",
+                            className="mt-3",
+                            style={"display": "none"},
+                        ),
+                        html.Div(id="visit-ends-detail", className="mt-3"),
                     ])),
                     width=12,
                 ),
@@ -1566,26 +1657,56 @@ def add_end(
 
 @dash.callback(
     dash.Output("visits-table", "children"),
+    dash.Output("visits-datatable", "columns"),
+    dash.Output("visits-datatable", "data"),
     dash.Input("visits-table", "id"),
 )
 def update_visits_table(_):
     data = get_visits_data()
     if not data:
-        return html.P("No visits recorded.")
-    df = pd.DataFrame(data)
-    return DataTable(
-        columns=[{"name": c, "id": c} for c in df.columns],
-        data=df.to_dict("records"),
-        sort_action="native",
-        filter_action="native",
-        page_action="native",
-        page_size=10,
-        style_cell={"textAlign": "left", "padding": "10px"},
-        style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
-        style_data_conditional=[
-            {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"}
-        ],
-    )
+        return html.P("No visits recorded."), [], []
+    columns = [{"name": c, "id": c} for c in data[0]]
+    return None, columns, data
+
+
+@dash.callback(
+    dash.Output("visit-ends-detail", "children"),
+    dash.Output("visit-ends-columns-wrapper", "style"),
+    dash.Input("visits-datatable", "selected_rows"),
+    dash.Input("visit-ends-columns", "value"),
+    dash.State("visits-datatable", "data"),
+)
+def show_visit_ends(selected_rows, selected_columns, visits):
+    hidden, shown = {"display": "none"}, {}
+    if not selected_rows or not visits:
+        return None, hidden
+    visit = visits[selected_rows[0]]
+    ends = get_visit_ends(visit["Visit ID"])
+    heading = html.H5(f"Visit #{visit['Visit ID']} – {visit['Date']} at {visit['Range']}")
+    if ends is None:
+        return [heading, dbc.Alert("Could not load the ends for this visit.", color="danger")], hidden
+    if not ends:
+        return [heading, html.P("This visit has no ends.", className="text-muted")], hidden
+    total = sum(e["Shots"] or 0 for e in ends)
+    columns = [c for c in VISIT_END_COLUMNS if c in (selected_columns or VISIT_END_COLUMNS)]
+    return [
+        heading,
+        html.P(f"{len(ends)} end{'s' if len(ends) != 1 else ''}, {total} shots", className="text-muted"),
+        DataTable(
+            id="visit-ends-datatable",
+            columns=[{"name": c, "id": c} for c in columns],
+            data=ends,
+            sort_action="native",
+            page_action="native",
+            page_size=30,
+            style_table={"overflowX": "auto"},
+            style_cell={"textAlign": "left", "padding": "8px"},
+            style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
+            style_data_conditional=[
+                {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"}
+            ],
+        ),
+    ], shown
 
 
 @dash.callback(
