@@ -193,7 +193,7 @@ def get_visit_ends(visit_id):
                 e.quantity, e.shots_scored, e.distance_m,
                 t.target_name, s.name as sight, s.type as sight_type,
                 e.stance, e.supporting_hands, e.points_of_stabilisation,
-                e.remarks
+                e.remarks, e.firearm_target_id, t.type
             from firearm_end e
             left join firearm_model m on m.id = e.firearm_model_id
             left join firearm_cartridge car on car.id = e.firearm_cartridge_id
@@ -223,9 +223,199 @@ def get_visit_ends(visit_id):
             "Hands": r[11],
             "Stabilisation Pts": r[12],
             "Remarks": r[13],
+            # not displayed; used to pick the shot table when the end is selected
+            "_target_id": r[14],
+            "_target_type": r[15],
         }
         for r in rows
     ]
+
+
+# Which table holds an end's shot-by-shot record depends on its target. Any target
+# not listed here keeps its shots in firearm_shot.
+TRAP_TARGET_IDS = {16, 18, 19, 25, 26}     # trap_round -> trap_shot
+DOUBLE_TRAP_TARGET_IDS = {22}              # double_trap_round -> double_trap_shot
+SKEET_TARGET_IDS = {21, 23, 24, 27, 28}    # skeet_round -> skeet_shot
+
+
+def shot_source(target_id):
+    if target_id in TRAP_TARGET_IDS:
+        return "trap"
+    if target_id in DOUBLE_TRAP_TARGET_IDS:
+        return "double_trap"
+    if target_id in SKEET_TARGET_IDS:
+        return "skeet"
+    return "firearm"
+
+
+def _query(session, sql, **params):
+    return session.execute(text(sql), params).fetchall()
+
+
+def get_firearm_shots(session, end_id):
+    """firearm_shot rows for an end: (score, is_x, num_shots), best score first."""
+    return _query(session, """
+        select score, is_x, num_shots from firearm_shot
+        where firearm_end_id = :end_id
+        order by score desc nulls last, is_x desc nulls last, id
+    """, end_id=end_id)
+
+
+def get_end_shots(end_id, target_id):
+    """The shot-by-shot record of one end, read from the table its target uses."""
+    source = shot_source(target_id)
+    try:
+        session = Session()
+        result = {"source": source, "round": None, "shots": [], "fallback": []}
+        if source in ("trap", "double_trap"):
+            round_table, shot_table = f"{source}_round", f"{source}_shot"
+            rnd = _query(session, f"""
+                select id, discipline, num_break, starting_station
+                from {round_table} where firearm_end_id = :end_id
+            """, end_id=end_id)
+            if rnd:
+                result["round"] = dict(zip(("id", "discipline", "num_break", "starting_station"), rnd[0]))
+                result["shots"] = _query(session, f"""
+                    select station, num_break from {shot_table}
+                    where {round_table}_id = :round_id order by id
+                """, round_id=rnd[0][0])
+        elif source == "skeet":
+            rnd = _query(session, """
+                select id, discipline, coalesce(sequence, discipline), num_break
+                from skeet_round where firearm_end_id = :end_id
+            """, end_id=end_id)
+            if rnd:
+                result["round"] = dict(zip(("id", "discipline", "sequence", "num_break"), rnd[0]))
+                result["shots"] = _query(session, """
+                    select shot_order, broken from skeet_shot
+                    where skeet_round_id = :round_id order by shot_order
+                """, round_id=rnd[0][0])
+        else:
+            result["shots"] = get_firearm_shots(session, end_id)
+        # some older clay ends only have a hit/miss tally in firearm_shot
+        if source != "firearm" and not result["shots"]:
+            result["fallback"] = get_firearm_shots(session, end_id)
+        session.close()
+        return result
+    except Exception as e:
+        print(f"Error querying shots for end {end_id}: {e}")
+        return None
+
+
+_SHOT_TABLE_STYLE = dict(
+    style_table={"overflowX": "auto"},
+    style_cell=SHOT_CELL_STYLE,
+    style_header=SHOT_HEADER_STYLE,
+)
+
+
+def render_station_shots(round_info, shots):
+    """Trap and double trap: breaks at each station."""
+    row = {f"st-{i}": s[1] for i, s in enumerate(shots)}
+    row["total"] = sum(s[1] or 0 for s in shots)
+    columns = [{"name": f"Station {s[0]}", "id": f"st-{i}"} for i, s in enumerate(shots)]
+    columns.append({"name": "Total", "id": "total"})
+    return DataTable(
+        columns=columns, data=[row],
+        style_data_conditional=[{"if": {"column_id": "total"}, "fontWeight": "bold"}],
+        **{**_SHOT_TABLE_STYLE, "style_cell": {**SHOT_CELL_STYLE, "minWidth": "80px",
+                                              "width": "80px", "maxWidth": "80px"}},
+    )
+
+
+def render_skeet_shots(round_info, shots):
+    sequence = get_sequence(round_info["sequence"])
+    if sequence is None:
+        return html.P(f"No target sequence is defined for {round_info['sequence']!r}.",
+                      className="text-muted")
+    stored = {s[0]: 1 if s[1] else 0 for s in shots}
+    row = {f"shot-{i}": stored.get(i, "") for i in range(1, len(sequence) + 1)}
+    return DataTable(
+        columns=shot_columns(sequence), data=[row],
+        style_data_conditional=miss_highlight(sequence),
+        **_SHOT_TABLE_STYLE,
+    )
+
+
+def render_firearm_shots(shots, target_type):
+    """firearm_shot is a tally: how many shots landed on each score."""
+    binary = target_type == "Binary"
+    data = []
+    for score, is_x, num_shots in shots:
+        if binary:
+            label = {1: "Hit", 0: "Miss"}.get(score, score)
+        else:
+            label = "X" if is_x else score
+        data.append({"Score": label, "Shots": num_shots,
+                     "Points": (score or 0) * (num_shots or 0)})
+    total_shots = sum(d["Shots"] or 0 for d in data)
+    total = {"Score": "Total", "Shots": total_shots, "Points": sum(d["Points"] for d in data)}
+    columns = [{"name": "Result" if binary else "Score", "id": "Score"}, {"name": "Shots", "id": "Shots"}]
+    if not binary:
+        columns.append({"name": "Points", "id": "Points"})
+        # share of shots at or above each score
+        running = 0
+        for d in data:
+            running += d["Shots"] or 0
+            d["Cumulative %"] = running / total_shots if total_shots else 0
+        columns.append({"name": "At or Above", "id": "Cumulative %", "type": "numeric",
+                        "format": {"specifier": ".0%"}})
+    return DataTable(
+        columns=columns, data=data + [total],
+        style_table={"maxWidth": "420px"},
+        style_cell={"textAlign": "center", "padding": "6px"},
+        style_header=SHOT_HEADER_STYLE,
+        style_data_conditional=[{"if": {"row_index": len(data)}, "fontWeight": "bold",
+                                 "backgroundColor": "rgb(240, 240, 240)"}],
+    )
+
+
+SOURCE_LABELS = {
+    "trap": "trap_shot", "double_trap": "double_trap_shot",
+    "skeet": "skeet_shot", "firearm": "firearm_shot",
+}
+ROUND_LABELS = {"trap": "Trap round", "double_trap": "Double trap round", "skeet": "Skeet round"}
+
+
+def render_end_shots(end):
+    record = get_end_shots(end["End ID"], end.get("_target_id"))
+    heading = html.H6(f"End #{end['End ID']} – {end.get('Target') or 'no target'}", className="mt-3")
+    if record is None:
+        return [heading, dbc.Alert("Could not load the shots for this end.", color="danger")]
+    source, rnd, shots = record["source"], record["round"], record["shots"]
+    note = html.Small(f"From {SOURCE_LABELS[source]}.", className="text-muted d-block mt-1")
+
+    if source == "firearm":
+        if not shots:
+            return [heading, html.P("No shots recorded in firearm_shot.", className="text-muted")]
+        return [heading, render_firearm_shots(shots, end.get("_target_type")), note]
+
+    parts = [heading]
+    if rnd is None:
+        parts.append(html.P(f"No {source}_round row links to this end.", className="text-muted"))
+    else:
+        info = [f"{ROUND_LABELS[source]} #{rnd['id']}"]
+        if rnd.get("discipline"):
+            info.append(rnd["discipline"])
+        if source == "skeet" and rnd.get("sequence") != rnd.get("discipline"):
+            info.append(f"{rnd.get('sequence') or '—'} sequence")
+        if rnd.get("starting_station") is not None:
+            info.append(f"started at station {rnd['starting_station']}")
+        if rnd.get("num_break") is not None:
+            info.append(f"{rnd['num_break']} breaks")
+        parts.append(html.P(" · ".join(info), className="mb-2"))
+        if shots:
+            render = render_skeet_shots if source == "skeet" else render_station_shots
+            parts += [render(rnd, shots), note]
+        else:
+            parts.append(html.P(f"No shot-by-shot record in {SOURCE_LABELS[source]}.",
+                                className="text-muted"))
+    if record["fallback"]:
+        parts += [
+            html.P("firearm_shot has a tally for this end:", className="mt-3 mb-1"),
+            render_firearm_shots(record["fallback"], end.get("_target_type")),
+        ]
+    return parts
 
 
 def get_ammunition_data():
@@ -1141,6 +1331,25 @@ def layout():
                             style={"display": "none"},
                         ),
                         html.Div(id="visit-ends-detail", className="mt-3"),
+                        DataTable(
+                            id="visit-ends-datatable",
+                            columns=[],
+                            data=[],
+                            row_selectable="single",
+                            selected_rows=[],
+                            sort_action="native",
+                            page_action="native",
+                            page_size=30,
+                            style_table={"display": "none"},
+                            style_cell={"textAlign": "left", "padding": "8px"},
+                            style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
+                            style_data_conditional=[
+                                {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"},
+                                {"if": {"state": "selected"}, "backgroundColor": "rgb(220, 235, 255)",
+                                 "border": "1px solid rgb(120, 160, 220)"},
+                            ],
+                        ),
+                        html.Div(id="visit-end-shots"),
                     ])),
                     width=12,
                 ),
@@ -1672,41 +1881,57 @@ def update_visits_table(_):
 @dash.callback(
     dash.Output("visit-ends-detail", "children"),
     dash.Output("visit-ends-columns-wrapper", "style"),
+    dash.Output("visit-ends-datatable", "columns"),
+    dash.Output("visit-ends-datatable", "data"),
+    dash.Output("visit-ends-datatable", "selected_rows"),
+    dash.Output("visit-ends-datatable", "style_table"),
     dash.Input("visits-datatable", "selected_rows"),
     dash.Input("visit-ends-columns", "value"),
     dash.State("visits-datatable", "data"),
+    dash.State("visit-ends-datatable", "selected_rows"),
+    dash.State("visit-ends-datatable", "data"),
 )
-def show_visit_ends(selected_rows, selected_columns, visits):
+def show_visit_ends(selected_rows, selected_columns, visits, end_rows, old_ends):
     hidden, shown = {"display": "none"}, {}
+    no_table = ([], [], [], hidden)
     if not selected_rows or not visits:
-        return None, hidden
+        return (None, hidden) + no_table
     visit = visits[selected_rows[0]]
     ends = get_visit_ends(visit["Visit ID"])
+    # changing the columns redraws the table; keep the selected end if it is still there
+    kept = []
+    if ctx.triggered_id == "visit-ends-columns" and end_rows and old_ends and ends:
+        old_id = old_ends[end_rows[0]]["End ID"] if end_rows[0] < len(old_ends) else None
+        kept = [i for i, e in enumerate(ends) if e["End ID"] == old_id]
     heading = html.H5(f"Visit #{visit['Visit ID']} – {visit['Date']} at {visit['Range']}")
     if ends is None:
-        return [heading, dbc.Alert("Could not load the ends for this visit.", color="danger")], hidden
+        return ([heading, dbc.Alert("Could not load the ends for this visit.", color="danger")],
+                hidden) + no_table
     if not ends:
-        return [heading, html.P("This visit has no ends.", className="text-muted")], hidden
+        return [heading, html.P("This visit has no ends.", className="text-muted")], hidden, *no_table
     total = sum(e["Shots"] or 0 for e in ends)
     columns = [c for c in VISIT_END_COLUMNS if c in (selected_columns or VISIT_END_COLUMNS)]
-    return [
+    detail = [
         heading,
-        html.P(f"{len(ends)} end{'s' if len(ends) != 1 else ''}, {total} shots", className="text-muted"),
-        DataTable(
-            id="visit-ends-datatable",
-            columns=[{"name": c, "id": c} for c in columns],
-            data=ends,
-            sort_action="native",
-            page_action="native",
-            page_size=30,
-            style_table={"overflowX": "auto"},
-            style_cell={"textAlign": "left", "padding": "8px"},
-            style_header={"backgroundColor": "rgb(230, 230, 230)", "fontWeight": "bold"},
-            style_data_conditional=[
-                {"if": {"row_index": "odd"}, "backgroundColor": "rgb(248, 248, 248)"}
-            ],
-        ),
-    ], shown
+        html.P(f"{len(ends)} end{'s' if len(ends) != 1 else ''}, {total} shots. "
+               "Select an end to see its shots.", className="text-muted"),
+    ]
+    return (detail, shown, [{"name": c, "id": c} for c in columns], ends, kept,
+            {"overflowX": "auto"})
+
+
+@dash.callback(
+    dash.Output("visit-end-shots", "children"),
+    dash.Input("visit-ends-datatable", "selected_rows"),
+    dash.State("visit-ends-datatable", "data"),
+)
+def show_end_shots(end_rows, ends):
+    # a new visit or column change resets selected_rows, which clears or redraws this
+    if not end_rows or not ends:
+        return None
+    if end_rows[0] >= len(ends):
+        return None
+    return render_end_shots(ends[end_rows[0]])
 
 
 @dash.callback(
