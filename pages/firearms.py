@@ -235,7 +235,7 @@ def get_visit_ends(visit_id):
 # not listed here keeps its shots in firearm_shot.
 TRAP_TARGET_IDS = {16, 18, 19, 25, 26}     # trap_round -> trap_shot
 DOUBLE_TRAP_TARGET_IDS = {22}              # double_trap_round -> double_trap_shot
-SKEET_TARGET_IDS = {21, 23, 24, 27, 28}    # skeet_round -> skeet_shot
+SKEET_TARGET_IDS = {21, 23, 24, 27, 28, 30, 31}  # skeet_round -> skeet_shot (30, 31 are VR)
 
 
 def shot_source(target_id):

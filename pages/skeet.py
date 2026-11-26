@@ -37,13 +37,15 @@ def get_skeet_rounds(discipline=None):
                 coalesce(a.short_name, a."name") as ammunition, car.name as cartridge, car.shot_size as shot,
                 c1."name" as choke1, c1.constriction as constriction1,
                 c2."name" as choke2, c2.constriction as constriction2,
-                sk.num_break, sk.remarks
+                sk.num_break, sk.remarks, t.target_name
             from firearm_visit v
             join firearm_end e on v.id = e.firearm_visit_id
-            join firearm_model m on e.firearm_model_id = m.id
-            join firearm_ammunition a on e.firearm_ammunition_id = a.id
-            join firearm_cartridge car on a.firearm_cartridge_id = car.id
+            -- left joins: VR rounds (targets 30, 31) have no ammunition or cartridge
+            left join firearm_model m on e.firearm_model_id = m.id
+            left join firearm_ammunition a on e.firearm_ammunition_id = a.id
+            left join firearm_cartridge car on a.firearm_cartridge_id = car.id
             join skeet_round sk on e.id = sk.firearm_end_id
+            left join firearm_target t on e.firearm_target_id = t.id
             left join shotgun_choke c1 on sk.shotgun_choke_id1 = c1.id
             left join shotgun_choke c2 on sk.shotgun_choke_id2 = c2.id
             order by visit_date desc, e.id desc
@@ -60,6 +62,7 @@ def get_skeet_rounds(discipline=None):
                 "Visit Date": row[1].strftime("%Y-%m-%d") if row[1] else None,
                 "End ID": row[2],
                 "Discipline": row[3],
+                "Target": row[16],
                 "Sequence": row[4],
                 "Low Gun Start": row[5],
                 "Gun": row[6],
@@ -258,6 +261,7 @@ COLUMNS = [
     {"name": "Visit Date",   "id": "Visit Date",   "type": "text"},
     {"name": "End ID",       "id": "End ID",       "type": "numeric"},
     {"name": "Discipline",   "id": "Discipline",   "type": "text"},
+    {"name": "Target",       "id": "Target",       "type": "text"},
     {"name": "Sequence",     "id": "Sequence",     "type": "text"},
     {"name": "Low Gun Start", "id": "Low Gun Start", "type": "text"},
     {"name": "Gun",          "id": "Gun",          "type": "text"},

@@ -16,6 +16,8 @@ DISCIPLINE_TARGETS = [
     ("NSSA Skeet", [21, 28]),
     ("International Skeet", [23, 24, 27]),
     ("ATA Trap Doubles", [22]),
+    ("NSSA Skeet (VR)", [31]),
+    ("International Skeet (VR)", [30]),
 ]
 
 
